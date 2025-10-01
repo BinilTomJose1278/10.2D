@@ -41,26 +41,37 @@ jobs:
         echo "Staging will use the same PostgreSQL server as production"
         echo "Databases: customer_db, order_db, product_db"
 
-    - name: Cleanup Old Staging Containers
+    - name: Check and Manage Container Quota
       run: |
-        echo "Cleaning up old staging containers to free up quota..."
+        echo "Checking container quota and cleaning up if needed..."
         
-        # Get all container groups and delete staging ones
-        CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'staging-')].name" -o tsv)
+        # Get current container count
+        CURRENT_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
+        echo "Current container count: $CURRENT_COUNT/10"
         
-        if [ -n "$CONTAINERS" ]; then
-          echo "Found staging containers to delete:"
-          echo "$CONTAINERS"
+        # If we're close to the limit, clean up old staging containers
+        if [ $CURRENT_COUNT -ge 8 ]; then
+          echo "Near quota limit, cleaning up old staging containers..."
           
-          for container in $CONTAINERS; do
-            echo "Deleting container: $container"
-            az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
-          done
+          # Get all staging containers except current run
+          OLD_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'staging-') && !contains(name, '${{ github.run_id }}')].name" -o tsv)
           
-          echo "Waiting for containers to be deleted..."
-          sleep 30
+          if [ -n "$OLD_CONTAINERS" ]; then
+            echo "Deleting old staging containers:"
+            echo "$OLD_CONTAINERS"
+            
+            for container in $OLD_CONTAINERS; do
+              echo "Deleting: $container"
+              az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
+            done
+            
+            echo "Waiting for deletion to complete..."
+            sleep 90  # Wait longer for deletion
+          else
+            echo "No old staging containers to clean up"
+          fi
         else
-          echo "No staging containers found to delete"
+          echo "Quota is sufficient, proceeding with deployment"
         fi
 
     - name: Create Staging RabbitMQ
