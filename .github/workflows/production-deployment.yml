@@ -24,17 +24,42 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Deploy to Production Environment
+    - name: Emergency Container Cleanup
       run: |
-        # Deploy production containers with new images
+        echo "Cleaning up ALL production containers to avoid quota issues..."
         
-        # Delete existing containers if they exist
+        # Delete ALL production containers aggressively
         az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name production-customer-service --yes || true
         az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name production-product-service --yes || true
         az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name production-order-service --yes || true
         az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name production-frontend --yes || true
+        az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name production-rabbitmq --yes || true
+        
+        # Wait for deletion to complete
+        echo "Waiting 150 seconds for container deletion to complete..."
+        sleep 150
+        
+        echo "Container cleanup completed!"
+
+    - name: Deploy to Production Environment (Sequential)
+      run: |
+        echo "Creating production containers sequentially to avoid quota issues..."
+        
+        # Create RabbitMQ first
+        echo "Creating RabbitMQ container..."
+        az container create \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name production-rabbitmq \
+          --image rabbitmq:3-management \
+          --os-type Linux \
+          --ports 5672 15672 \
+          --cpu 1 \
+          --memory 1 \
+          --ip-address public
+        sleep 15
         
         # Create Customer Service
+        echo "Creating Customer Service container..."
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-customer-service \
@@ -49,9 +74,11 @@ jobs:
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public \
-          --restart-policy Always \
+          --restart-policy Always
+        sleep 10
 
-        # Update Product Service
+        # Create Product Service
+        echo "Creating Product Service container..."
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-product-service \
@@ -72,9 +99,11 @@ jobs:
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public \
-          --restart-policy Always \
+          --restart-policy Always
+        sleep 10
 
-        # Update Order Service
+        # Create Order Service
+        echo "Creating Order Service container..."
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-order-service \
@@ -94,9 +123,11 @@ jobs:
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public \
-          --restart-policy Always \
+          --restart-policy Always
+        sleep 10
 
-        # Update Frontend
+        # Create Frontend
+        echo "Creating Frontend container..."
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-frontend \
@@ -109,7 +140,10 @@ jobs:
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public \
-          --restart-policy Always \
+          --restart-policy Always
+        sleep 10
+        
+        echo "All production containers created successfully!"
 
     - name: Wait for Deployment
       run: |
