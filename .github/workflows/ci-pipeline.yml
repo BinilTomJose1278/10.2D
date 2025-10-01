@@ -68,7 +68,11 @@ jobs:
         pip install -r requirements-dev.txt
         python -m pytest tests/ -v --tb=short
       env:
-        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+        POSTGRES_DB: test_db
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
 
     # Test Order Service
     - name: Test Order Service
@@ -78,7 +82,11 @@ jobs:
         pip install -r requirements-dev.txt
         python -m pytest tests/ -v --tb=short
       env:
-        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+        POSTGRES_DB: test_db
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
         CUSTOMER_SERVICE_URL: http://localhost:8002
         RABBITMQ_HOST: localhost
         RABBITMQ_PORT: 5672
@@ -93,7 +101,11 @@ jobs:
         pip install -r requirements-dev.txt
         python -m pytest tests/ -v --tb=short
       env:
-        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+        POSTGRES_DB: test_db
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
         RABBITMQ_HOST: localhost
         RABBITMQ_PORT: 5672
         RABBITMQ_USER: guest
@@ -106,7 +118,11 @@ jobs:
         docker build -t customer-service:${{ github.sha }} .
         docker run --rm --detach --name customer-test \
           --network host \
-          -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_DB=test_db \
+          -e POSTGRES_HOST=localhost \
+          -e POSTGRES_PORT=5432 \
           customer-service:${{ github.sha }}
         sleep 10
         curl -f http://localhost:8002/health || exit 1
@@ -118,7 +134,11 @@ jobs:
         docker build -t order-service:${{ github.sha }} .
         docker run --rm --detach --name order-test \
           --network host \
-          -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_DB=test_db \
+          -e POSTGRES_HOST=localhost \
+          -e POSTGRES_PORT=5432 \
           -e CUSTOMER_SERVICE_URL=http://localhost:8002 \
           -e RABBITMQ_HOST=localhost \
           -e RABBITMQ_PORT=5672 \
@@ -135,7 +155,11 @@ jobs:
         docker build -t product-service:${{ github.sha }} .
         docker run --rm --detach --name product-test \
           --network host \
-          -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db \
+          -e POSTGRES_USER=postgres \
+          -e POSTGRES_PASSWORD=postgres \
+          -e POSTGRES_DB=test_db \
+          -e POSTGRES_HOST=localhost \
+          -e POSTGRES_PORT=5432 \
           -e RABBITMQ_HOST=localhost \
           -e RABBITMQ_PORT=5672 \
           -e RABBITMQ_USER=guest \
