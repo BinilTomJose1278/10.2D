@@ -67,11 +67,11 @@ jobs:
           --os-type Linux \
           --ports 8002 \
           --environment-variables \
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }} \
+            POSTGRES_USER=btjcommerce \
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
-            POSTGRES_DB=${{ secrets.POSTGRES_DB_CUSTOMER }} \
-            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }} \
-            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }} \
+            POSTGRES_DB=customer_db \
+            POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
+            POSTGRES_PORT=5432 \
           --cpu 2 \
           --memory 2 \
           --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
@@ -90,11 +90,11 @@ jobs:
           --os-type Linux \
           --ports 8001 \
           --environment-variables \
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }} \
+            POSTGRES_USER=btjcommerce \
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
-            POSTGRES_DB=${{ secrets.POSTGRES_DB_PRODUCT }} \
-            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }} \
-            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }} \
+            POSTGRES_DB=product_db \
+            POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
+            POSTGRES_PORT=5432 \
             RABBITMQ_HOST=production-rabbitmq \
             RABBITMQ_PORT=5672 \
             RABBITMQ_USER=guest \
@@ -119,11 +119,11 @@ jobs:
           --os-type Linux \
           --ports 8003 \
           --environment-variables \
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }} \
+            POSTGRES_USER=btjcommerce \
             POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
-            POSTGRES_DB=${{ secrets.POSTGRES_DB_ORDER }} \
-            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }} \
-            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }} \
+            POSTGRES_DB=order_db \
+            POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
+            POSTGRES_PORT=5432 \
             CUSTOMER_SERVICE_URL=http://production-customer-service \
             RABBITMQ_HOST=production-rabbitmq \
             RABBITMQ_PORT=5672 \
