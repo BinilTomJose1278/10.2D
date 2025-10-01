@@ -26,7 +26,7 @@ jobs:
 
     - name: Emergency Container Cleanup
       run: |
-        echo "EMERGENCY CLEANUP: You have 11/10 containers - cleaning up ALL production containers!"
+        echo "EMERGENCY CLEANUP: Cleaning up ALL production containers!"
         
         # Get current container count
         CURRENT_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
@@ -47,17 +47,27 @@ jobs:
             az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
           done
           
+          # Wait and verify cleanup with retry logic
           echo "Waiting for deletion to complete..."
-          sleep 150  # Wait longer for deletion
+          MAX_RETRIES=30
+          RETRY_COUNT=0
           
-          # Check count after cleanup
-          NEW_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
-          echo "Container count after emergency cleanup: $NEW_COUNT/10"
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            CURRENT_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
+            echo "Current container count: $CURRENT_COUNT/10 (Attempt $((RETRY_COUNT+1))/$MAX_RETRIES)"
+            
+            if [ $CURRENT_COUNT -le 2 ]; then
+              echo "SUCCESS: Cleanup complete. Safe to deploy."
+              break
+            fi
+            
+            sleep 10
+            RETRY_COUNT=$((RETRY_COUNT+1))
+          done
           
-          if [ $NEW_COUNT -ge 8 ]; then
-            echo "WARNING: Still too many containers. This deployment may fail."
-          else
-            echo "SUCCESS: Enough quota available for deployment"
+          if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+            echo "ERROR: Cleanup did not complete in time. Manual intervention required."
+            exit 1
           fi
         else
           echo "No production containers found to delete"
