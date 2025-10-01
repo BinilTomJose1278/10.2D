@@ -26,28 +26,42 @@ jobs:
 
     - name: Emergency Container Cleanup
       run: |
-        echo "EMERGENCY CLEANUP: Deleting ALL containers to avoid quota issues..."
+        echo "EMERGENCY CLEANUP: You have 11/10 containers - cleaning up ALL production containers!"
         
         # Get current container count
         CURRENT_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
         echo "Current container count: $CURRENT_COUNT/10"
         
-        # Delete ALL containers aggressively (not just production)
-        echo "Deleting ALL containers in resource group..."
-        az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[].name" -o tsv | while read container_name; do
-          echo "Deleting container: $container_name"
-          az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container_name --yes || true
-        done
+        # Delete ALL production containers (including any from current run that might exist)
+        echo "Deleting ALL production containers to free up quota..."
         
-        # Wait longer for deletion to complete
-        echo "Waiting 180 seconds for container deletion to complete..."
-        sleep 180
+        # Get all production containers
+        PRODUCTION_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'production-')].name" -o tsv)
         
-        # Verify cleanup
-        FINAL_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
-        echo "Final container count: $FINAL_COUNT/10"
-        
-        echo "Emergency container cleanup completed!"
+        if [ -n "$PRODUCTION_CONTAINERS" ]; then
+          echo "Deleting production containers:"
+          echo "$PRODUCTION_CONTAINERS"
+          
+          for container in $PRODUCTION_CONTAINERS; do
+            echo "Force deleting: $container"
+            az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
+          done
+          
+          echo "Waiting for deletion to complete..."
+          sleep 150  # Wait longer for deletion
+          
+          # Check count after cleanup
+          NEW_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
+          echo "Container count after emergency cleanup: $NEW_COUNT/10"
+          
+          if [ $NEW_COUNT -ge 8 ]; then
+            echo "WARNING: Still too many containers. This deployment may fail."
+          else
+            echo "SUCCESS: Enough quota available for deployment"
+          fi
+        else
+          echo "No production containers found to delete"
+        fi
 
     - name: Deploy to Production Environment (Sequential)
       run: |
@@ -76,7 +90,7 @@ jobs:
           --ports 8002 \
           --environment-variables \
             POSTGRES_USER=btjcommerce \
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
+            POSTGRES_PASSWORD=YourPassword123! \
             POSTGRES_DB=customer_db \
             POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
             POSTGRES_PORT=5432 \
@@ -100,7 +114,7 @@ jobs:
           --ports 8001 \
           --environment-variables \
             POSTGRES_USER=btjcommerce \
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
+            POSTGRES_PASSWORD=YourPassword123! \
             POSTGRES_DB=product_db \
             POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
             POSTGRES_PORT=5432 \
@@ -130,7 +144,7 @@ jobs:
           --ports 8003 \
           --environment-variables \
             POSTGRES_USER=btjcommerce \
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
+            POSTGRES_PASSWORD=YourPassword123! \
             POSTGRES_DB=order_db \
             POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
             POSTGRES_PORT=5432 \
