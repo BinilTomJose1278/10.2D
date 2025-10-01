@@ -41,6 +41,28 @@ jobs:
         echo "Staging will use the same PostgreSQL server as production"
         echo "Databases: customer_db, order_db, product_db"
 
+    - name: Cleanup Old Staging Containers
+      run: |
+        echo "Cleaning up old staging containers to free up quota..."
+        
+        # Get all container groups and delete staging ones
+        CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'staging-')].name" -o tsv)
+        
+        if [ -n "$CONTAINERS" ]; then
+          echo "Found staging containers to delete:"
+          echo "$CONTAINERS"
+          
+          for container in $CONTAINERS; do
+            echo "Deleting container: $container"
+            az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
+          done
+          
+          echo "Waiting for containers to be deleted..."
+          sleep 30
+        else
+          echo "No staging containers found to delete"
+        fi
+
     - name: Create Staging RabbitMQ
       run: |
         # Create RabbitMQ container instance
@@ -236,4 +258,14 @@ jobs:
     - name: Cleanup Staging Infrastructure
       if: always()
       run: |
-        echo "Staging deployment completed. Resources are kept for manual cleanup if needed."
+        echo "Cleaning up staging containers to free quota for future deployments..."
+        
+        # Delete the staging containers we just created
+        CONTAINER_NAMES="staging-rabbitmq-${{ github.run_id }} staging-customer-service-${{ github.run_id }} staging-product-service-${{ github.run_id }} staging-order-service-${{ github.run_id }} staging-frontend-${{ github.run_id }}"
+        
+        for container in $CONTAINER_NAMES; do
+          echo "Deleting container: $container"
+          az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
+        done
+        
+        echo "Staging containers cleaned up successfully"
