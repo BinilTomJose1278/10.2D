@@ -36,13 +36,13 @@ jobs:
         echo "Deleting ALL containers to free up quota..."
         
         # Get ALL containers in the resource group
-        PRODUCTION_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[].name" -o tsv)
+        ALL_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[].name" -o tsv)
         
-        if [ -n "$PRODUCTION_CONTAINERS" ]; then
+        if [ -n "$ALL_CONTAINERS" ]; then
           echo "Deleting ALL containers:"
-          echo "$PRODUCTION_CONTAINERS"
+          echo "$ALL_CONTAINERS"
           
-          for container in $PRODUCTION_CONTAINERS; do
+          for container in $ALL_CONTAINERS; do
             echo "Force deleting: $container"
             az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
           done
@@ -104,8 +104,8 @@ jobs:
             POSTGRES_DB=customer_db \
             POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
             POSTGRES_PORT=5432 \
-          --cpu 2 \
-          --memory 2 \
+          --cpu 1 \
+          --memory 1.5 \
           --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
@@ -134,8 +134,8 @@ jobs:
             RABBITMQ_PASS=guest \
             AZURE_STORAGE_ACCOUNT_NAME=${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }} \
             AZURE_STORAGE_ACCOUNT_KEY=${{ secrets.AZURE_STORAGE_ACCOUNT_KEY }} \
-          --cpu 2 \
-          --memory 2 \
+          --cpu 1 \
+          --memory 1.5 \
           --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
@@ -163,8 +163,8 @@ jobs:
             RABBITMQ_PORT=5672 \
             RABBITMQ_USER=guest \
             RABBITMQ_PASS=guest \
-          --cpu 2 \
-          --memory 2 \
+          --cpu 1 \
+          --memory 1.5 \
           --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
