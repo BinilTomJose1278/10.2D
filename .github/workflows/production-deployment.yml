@@ -67,7 +67,11 @@ jobs:
           --os-type Linux \
           --ports 8002 \
           --environment-variables \
-            DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL_CUSTOMER }} \
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }} \
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
+            POSTGRES_DB=${{ secrets.POSTGRES_DB_CUSTOMER }} \
+            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }} \
+            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }} \
           --cpu 2 \
           --memory 2 \
           --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
@@ -86,13 +90,17 @@ jobs:
           --os-type Linux \
           --ports 8001 \
           --environment-variables \
-            DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL_PRODUCT }} \
-            RABBITMQ_HOST=${{ secrets.PRODUCTION_RABBITMQ_HOST }} \
-            RABBITMQ_PORT=${{ secrets.PRODUCTION_RABBITMQ_PORT }} \
-            RABBITMQ_USER=${{ secrets.PRODUCTION_RABBITMQ_USER }} \
-            RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
-            AZURE_STORAGE_ACCOUNT_NAME=${{ secrets.PRODUCTION_AZURE_STORAGE_ACCOUNT_NAME }} \
-            AZURE_STORAGE_ACCOUNT_KEY=${{ secrets.PRODUCTION_AZURE_STORAGE_ACCOUNT_KEY }} \
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }} \
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
+            POSTGRES_DB=${{ secrets.POSTGRES_DB_PRODUCT }} \
+            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }} \
+            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }} \
+            RABBITMQ_HOST=production-rabbitmq \
+            RABBITMQ_PORT=5672 \
+            RABBITMQ_USER=guest \
+            RABBITMQ_PASS=guest \
+            AZURE_STORAGE_ACCOUNT_NAME=${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }} \
+            AZURE_STORAGE_ACCOUNT_KEY=${{ secrets.AZURE_STORAGE_ACCOUNT_KEY }} \
           --cpu 2 \
           --memory 2 \
           --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
@@ -111,12 +119,16 @@ jobs:
           --os-type Linux \
           --ports 8003 \
           --environment-variables \
-            DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL_ORDER }} \
-            CUSTOMER_SERVICE_URL=${{ secrets.PRODUCTION_CUSTOMER_SERVICE_URL }} \
-            RABBITMQ_HOST=${{ secrets.PRODUCTION_RABBITMQ_HOST }} \
-            RABBITMQ_PORT=${{ secrets.PRODUCTION_RABBITMQ_PORT }} \
-            RABBITMQ_USER=${{ secrets.PRODUCTION_RABBITMQ_USER }} \
-            RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }} \
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
+            POSTGRES_DB=${{ secrets.POSTGRES_DB_ORDER }} \
+            POSTGRES_HOST=${{ secrets.POSTGRES_HOST }} \
+            POSTGRES_PORT=${{ secrets.POSTGRES_PORT }} \
+            CUSTOMER_SERVICE_URL=http://production-customer-service \
+            RABBITMQ_HOST=production-rabbitmq \
+            RABBITMQ_PORT=5672 \
+            RABBITMQ_USER=guest \
+            RABBITMQ_PASS=guest \
           --cpu 2 \
           --memory 2 \
           --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
