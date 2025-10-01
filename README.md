@@ -264,6 +264,3 @@ task10_2d/
 5. Create a pull request to `testing` branch
 6. After testing, merge to `main` for production deployment
 
-## License
-
-This project is for educational purposes as part of SIT722 Software Deployment and Operation.
