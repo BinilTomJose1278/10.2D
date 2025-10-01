@@ -144,7 +144,7 @@ jobs:
     - name: Login to Azure Container Registry
       if: success()
       run: |
-        echo ${{ secrets.REGISTRY_PASSWORD }} | docker login ${{ secrets.AZURE_CONTAINER_REGISTRY }} -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
+        echo "${{ secrets.REGISTRY_PASSWORD }}" | docker login "${{ secrets.AZURE_CONTAINER_REGISTRY }}" -u "${{ secrets.REGISTRY_USERNAME }}" --password-stdin
 
     - name: Tag and Push Customer Service Image
       if: success()
