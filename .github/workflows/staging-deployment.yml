@@ -41,37 +41,43 @@ jobs:
         echo "Staging will use the same PostgreSQL server as production"
         echo "Databases: customer_db, order_db, product_db"
 
-    - name: Check and Manage Container Quota
+    - name: Emergency Container Cleanup
       run: |
-        echo "Checking container quota and cleaning up if needed..."
+        echo "EMERGENCY CLEANUP: You have 11/10 containers - cleaning up ALL staging containers!"
         
         # Get current container count
         CURRENT_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
         echo "Current container count: $CURRENT_COUNT/10"
         
-        # If we're close to the limit, clean up old staging containers
-        if [ $CURRENT_COUNT -ge 8 ]; then
-          echo "Near quota limit, cleaning up old staging containers..."
+        # Delete ALL staging containers (including any from current run that might exist)
+        echo "Deleting ALL staging containers to free up quota..."
+        
+        # Get all staging containers
+        STAGING_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'staging-')].name" -o tsv)
+        
+        if [ -n "$STAGING_CONTAINERS" ]; then
+          echo "Deleting staging containers:"
+          echo "$STAGING_CONTAINERS"
           
-          # Get all staging containers except current run
-          OLD_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'staging-') && !contains(name, '${{ github.run_id }}')].name" -o tsv)
+          for container in $STAGING_CONTAINERS; do
+            echo "Force deleting: $container"
+            az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
+          done
           
-          if [ -n "$OLD_CONTAINERS" ]; then
-            echo "Deleting old staging containers:"
-            echo "$OLD_CONTAINERS"
-            
-            for container in $OLD_CONTAINERS; do
-              echo "Deleting: $container"
-              az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
-            done
-            
-            echo "Waiting for deletion to complete..."
-            sleep 90  # Wait longer for deletion
+          echo "Waiting for deletion to complete..."
+          sleep 150  # Wait longer for deletion
+          
+          # Check count after cleanup
+          NEW_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
+          echo "Container count after emergency cleanup: $NEW_COUNT/10"
+          
+          if [ $NEW_COUNT -ge 8 ]; then
+            echo "WARNING: Still too many containers. This deployment may fail."
           else
-            echo "No old staging containers to clean up"
+            echo "SUCCESS: Enough quota available for deployment"
           fi
         else
-          echo "Quota is sufficient, proceeding with deployment"
+          echo "No staging containers found to delete"
         fi
 
     - name: Create Staging RabbitMQ
