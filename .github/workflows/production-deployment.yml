@@ -26,20 +26,20 @@ jobs:
 
     - name: Emergency Container Cleanup
       run: |
-        echo "EMERGENCY CLEANUP: Cleaning up ALL production containers!"
+        echo "EMERGENCY CLEANUP: Cleaning up ALL containers in resource group!"
         
         # Get current container count
         CURRENT_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
         echo "Current container count: $CURRENT_COUNT/10"
         
-        # Delete ALL production containers (including any from current run that might exist)
-        echo "Deleting ALL production containers to free up quota..."
+        # Delete ALL containers (not just production ones)
+        echo "Deleting ALL containers to free up quota..."
         
-        # Get all production containers
-        PRODUCTION_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'production-')].name" -o tsv)
+        # Get ALL containers in the resource group
+        PRODUCTION_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[].name" -o tsv)
         
         if [ -n "$PRODUCTION_CONTAINERS" ]; then
-          echo "Deleting production containers:"
+          echo "Deleting ALL containers:"
           echo "$PRODUCTION_CONTAINERS"
           
           for container in $PRODUCTION_CONTAINERS; do
@@ -56,7 +56,7 @@ jobs:
             CURRENT_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
             echo "Current container count: $CURRENT_COUNT/10 (Attempt $((RETRY_COUNT+1))/$MAX_RETRIES)"
             
-            if [ $CURRENT_COUNT -le 2 ]; then
+            if [ $CURRENT_COUNT -le 0 ]; then
               echo "SUCCESS: Cleanup complete. Safe to deploy."
               break
             fi
@@ -70,7 +70,7 @@ jobs:
             exit 1
           fi
         else
-          echo "No production containers found to delete"
+          echo "No containers found to delete"
         fi
 
     - name: Deploy to Production Environment (Sequential)
