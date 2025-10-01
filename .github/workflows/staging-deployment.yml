@@ -71,7 +71,7 @@ jobs:
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-customer-service-${{ github.run_id }} \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.event.client_payload.sha }} \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:latest \
           --os-type Linux \
           --ports 8002 \
           --environment-variables \
@@ -87,7 +87,7 @@ jobs:
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-product-service-${{ github.run_id }} \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.event.client_payload.sha }} \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:latest \
           --os-type Linux \
           --ports 8001 \
           --environment-variables \
@@ -107,7 +107,7 @@ jobs:
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-order-service-${{ github.run_id }} \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.event.client_payload.sha }} \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:latest \
           --os-type Linux \
           --ports 8003 \
           --environment-variables \
@@ -128,7 +128,7 @@ jobs:
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-frontend-${{ github.run_id }} \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.event.client_payload.sha }} \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:latest \
           --os-type Linux \
           --ports 80 \
           --cpu 1 \
