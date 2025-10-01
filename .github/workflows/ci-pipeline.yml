@@ -181,8 +181,10 @@ jobs:
     # Trigger staging deployment after successful image push
     - name: Trigger Staging Deployment
       if: success()
-      uses: peter-evans/repository-dispatch@v2
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        event-type: images-pushed
-        client-payload: '{"images": ["customer-service", "order-service", "product-service", "frontend"], "sha": "${{ github.sha }}"}'
+      run: |
+        echo "Images successfully pushed to ACR:"
+        echo "- customer-service:${{ github.sha }}"
+        echo "- order-service:${{ github.sha }}"
+        echo "- product-service:${{ github.sha }}"
+        echo "- frontend:${{ github.sha }}"
+        echo "Staging deployment can now be triggered manually or via webhook"

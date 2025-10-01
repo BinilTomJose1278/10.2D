@@ -1,8 +1,15 @@
 name: Staging Deployment Pipeline
 
 on:
-  repository_dispatch:
-    types: [images-pushed]
+  workflow_dispatch:
+    inputs:
+      image_sha:
+        description: 'Image SHA to deploy'
+        required: true
+        default: 'latest'
+  push:
+    branches:
+      - main
 
 env:
   AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
