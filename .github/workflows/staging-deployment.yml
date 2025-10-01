@@ -90,17 +90,21 @@ jobs:
           --memory 1 \
           --ip-address public
 
-    - name: Create Staging Container Instances
+    - name: Create Staging Container Instances (Sequential)
       run: |
         # Use existing PostgreSQL server
         POSTGRES_HOST="${{ secrets.POSTGRES_SERVER }}"
         
+        # Get RabbitMQ IP
         RABBITMQ_IP=$(az container show \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-rabbitmq-${{ github.run_id }} \
           --query ipAddress.ip -o tsv)
+        
+        echo "Creating containers one at a time to avoid quota conflicts..."
 
-        # Create Customer Service container
+        # Create Customer Service container (1st)
+        echo "Creating Customer Service container..."
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-customer-service-${{ github.run_id }} \
@@ -115,8 +119,12 @@ jobs:
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public
+        
+        echo "Customer Service container created successfully"
+        sleep 10  # Wait between deployments
 
-        # Create Product Service container
+        # Create Product Service container (2nd)
+        echo "Creating Product Service container..."
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-product-service-${{ github.run_id }} \
@@ -135,8 +143,12 @@ jobs:
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public
+        
+        echo "Product Service container created successfully"
+        sleep 10  # Wait between deployments
 
-        # Create Order Service container
+        # Create Order Service container (3rd)
+        echo "Creating Order Service container..."
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-order-service-${{ github.run_id }} \
@@ -156,8 +168,12 @@ jobs:
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public
+        
+        echo "Order Service container created successfully"
+        sleep 10  # Wait between deployments
 
-        # Create Frontend container
+        # Create Frontend container (4th)
+        echo "Creating Frontend container..."
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-frontend-${{ github.run_id }} \
@@ -170,6 +186,9 @@ jobs:
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public
+        
+        echo "Frontend container created successfully"
+        echo "All staging containers created successfully!"
 
     - name: Wait for Services to be Ready
       run: |
