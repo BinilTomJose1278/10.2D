@@ -17,7 +17,6 @@ env:
   REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  STAGING_RESOURCE_GROUP: ${{ secrets.STAGING_RESOURCE_GROUP }}
 
 jobs:
   create-staging-infrastructure:
@@ -32,15 +31,15 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Create Staging Resource Group
+    - name: Use Existing Resource Group
       run: |
-        az group create --name ${{ env.STAGING_RESOURCE_GROUP }} --location eastus
+        echo "Using existing resource group: ${{ env.AZURE_RESOURCE_GROUP }}"
 
     - name: Create Staging PostgreSQL Database
       run: |
         # Create PostgreSQL server
         az postgres flexible-server create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-postgres-${{ github.run_id }} \
           --location eastus \
           --admin-user postgres \
@@ -52,17 +51,17 @@ jobs:
 
         # Create databases for each service
         az postgres flexible-server db create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --server-name staging-postgres-${{ github.run_id }} \
           --database-name customer_db
 
         az postgres flexible-server db create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --server-name staging-postgres-${{ github.run_id }} \
           --database-name order_db
 
         az postgres flexible-server db create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --server-name staging-postgres-${{ github.run_id }} \
           --database-name product_db
 
@@ -70,7 +69,7 @@ jobs:
       run: |
         # Create RabbitMQ container instance
         az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-rabbitmq-${{ github.run_id }} \
           --image rabbitmq:3-management \
           --ports 5672 15672 \
@@ -85,18 +84,18 @@ jobs:
       run: |
         # Get PostgreSQL connection details
         POSTGRES_HOST=$(az postgres flexible-server show \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-postgres-${{ github.run_id }} \
           --query fullyQualifiedDomainName -o tsv)
         
         RABBITMQ_IP=$(az container show \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-rabbitmq-${{ github.run_id }} \
           --query ipAddress.ip -o tsv)
 
         # Create Customer Service container
         az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-customer-service-${{ github.run_id }} \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.event.client_payload.sha }} \
           --ports 8002 \
@@ -111,7 +110,7 @@ jobs:
 
         # Create Product Service container
         az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-product-service-${{ github.run_id }} \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.event.client_payload.sha }} \
           --ports 8001 \
@@ -130,7 +129,7 @@ jobs:
 
         # Create Order Service container
         az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-order-service-${{ github.run_id }} \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.event.client_payload.sha }} \
           --ports 8003 \
@@ -150,7 +149,7 @@ jobs:
 
         # Create Frontend container
         az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-frontend-${{ github.run_id }} \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.event.client_payload.sha }} \
           --ports 80 \
@@ -170,22 +169,22 @@ jobs:
       run: |
         # Get service URLs
         CUSTOMER_IP=$(az container show \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-customer-service-${{ github.run_id }} \
           --query ipAddress.ip -o tsv)
         
         PRODUCT_IP=$(az container show \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-product-service-${{ github.run_id }} \
           --query ipAddress.ip -o tsv)
         
         ORDER_IP=$(az container show \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-order-service-${{ github.run_id }} \
           --query ipAddress.ip -o tsv)
         
         FRONTEND_IP=$(az container show \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-frontend-${{ github.run_id }} \
           --query ipAddress.ip -o tsv)
 
@@ -204,6 +203,4 @@ jobs:
     - name: Cleanup Staging Infrastructure
       if: always()
       run: |
-        # Delete the entire staging resource group
-        az group delete --name ${{ env.STAGING_RESOURCE_GROUP }} --yes --no-wait
-        echo "Staging infrastructure cleanup initiated"
+        echo "Staging deployment completed. Resources are kept for manual cleanup if needed."
