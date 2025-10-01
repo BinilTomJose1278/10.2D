@@ -35,35 +35,11 @@ jobs:
       run: |
         echo "Using existing resource group: ${{ env.AZURE_RESOURCE_GROUP }}"
 
-    - name: Create Staging PostgreSQL Database
+    - name: Use Existing PostgreSQL Database
       run: |
-        # Create PostgreSQL server
-        az postgres flexible-server create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --name staging-postgres-${{ github.run_id }} \
-          --location eastus \
-          --admin-user postgres \
-          --admin-password ${{ secrets.POSTGRES_PASSWORD }} \
-          --sku-name Standard_B1ms \
-          --tier Burstable \
-          --public-access 0.0.0.0 \
-          --storage-size 32
-
-        # Create databases for each service
-        az postgres flexible-server db create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --server-name staging-postgres-${{ github.run_id }} \
-          --database-name customer_db
-
-        az postgres flexible-server db create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --server-name staging-postgres-${{ github.run_id }} \
-          --database-name order_db
-
-        az postgres flexible-server db create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --server-name staging-postgres-${{ github.run_id }} \
-          --database-name product_db
+        echo "Using existing PostgreSQL server: ${{ secrets.POSTGRES_SERVER }}"
+        echo "Staging will use the same PostgreSQL server as production"
+        echo "Databases: customer_db, order_db, product_db"
 
     - name: Create Staging RabbitMQ
       run: |
@@ -82,11 +58,8 @@ jobs:
 
     - name: Create Staging Container Instances
       run: |
-        # Get PostgreSQL connection details
-        POSTGRES_HOST=$(az postgres flexible-server show \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --name staging-postgres-${{ github.run_id }} \
-          --query fullyQualifiedDomainName -o tsv)
+        # Use existing PostgreSQL server
+        POSTGRES_HOST="${{ secrets.POSTGRES_SERVER }}"
         
         RABBITMQ_IP=$(az container show \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \

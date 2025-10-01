@@ -26,9 +26,15 @@ jobs:
 
     - name: Deploy to Production Environment
       run: |
-        # Update existing production containers with new images
+        # Deploy production containers with new images
         
-        # Update Customer Service
+        # Delete existing containers if they exist
+        az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name production-customer-service --yes || true
+        az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name production-product-service --yes || true
+        az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name production-order-service --yes || true
+        az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name production-frontend --yes || true
+        
+        # Create Customer Service
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-customer-service \
@@ -43,7 +49,6 @@ jobs:
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public \
           --restart-policy Always \
-          --overwrite
 
         # Update Product Service
         az container create \
@@ -66,7 +71,6 @@ jobs:
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public \
           --restart-policy Always \
-          --overwrite
 
         # Update Order Service
         az container create \
@@ -88,7 +92,6 @@ jobs:
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public \
           --restart-policy Always \
-          --overwrite
 
         # Update Frontend
         az container create \
@@ -103,7 +106,6 @@ jobs:
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
           --ip-address public \
           --restart-policy Always \
-          --overwrite
 
     - name: Wait for Deployment
       run: |
