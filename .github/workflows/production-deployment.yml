@@ -39,6 +39,7 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-customer-service \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.sha }} \
+          --os-type Linux \
           --ports 8002 \
           --environment-variables \
             DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL_CUSTOMER }} \
@@ -55,6 +56,7 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-product-service \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.sha }} \
+          --os-type Linux \
           --ports 8001 \
           --environment-variables \
             DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL_PRODUCT }} \
@@ -77,6 +79,7 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-order-service \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.sha }} \
+          --os-type Linux \
           --ports 8003 \
           --environment-variables \
             DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL_ORDER }} \
@@ -98,6 +101,7 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-frontend \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.sha }} \
+          --os-type Linux \
           --ports 80 \
           --cpu 1 \
           --memory 1 \

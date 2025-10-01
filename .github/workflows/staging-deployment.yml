@@ -48,6 +48,7 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-rabbitmq-${{ github.run_id }} \
           --image rabbitmq:3-management \
+          --os-type Linux \
           --ports 5672 15672 \
           --environment-variables \
             RABBITMQ_DEFAULT_USER=guest \
@@ -71,6 +72,7 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-customer-service-${{ github.run_id }} \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.event.client_payload.sha }} \
+          --os-type Linux \
           --ports 8002 \
           --environment-variables \
             DATABASE_URL=postgresql://postgres:${{ secrets.POSTGRES_PASSWORD }}@$POSTGRES_HOST:5432/customer_db \
@@ -86,6 +88,7 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-product-service-${{ github.run_id }} \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.event.client_payload.sha }} \
+          --os-type Linux \
           --ports 8001 \
           --environment-variables \
             DATABASE_URL=postgresql://postgres:${{ secrets.POSTGRES_PASSWORD }}@$POSTGRES_HOST:5432/product_db \
@@ -105,6 +108,7 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-order-service-${{ github.run_id }} \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.event.client_payload.sha }} \
+          --os-type Linux \
           --ports 8003 \
           --environment-variables \
             DATABASE_URL=postgresql://postgres:${{ secrets.POSTGRES_PASSWORD }}@$POSTGRES_HOST:5432/order_db \
@@ -125,6 +129,7 @@ jobs:
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-frontend-${{ github.run_id }} \
           --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.event.client_payload.sha }} \
+          --os-type Linux \
           --ports 80 \
           --cpu 1 \
           --memory 1 \
