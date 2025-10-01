@@ -145,7 +145,10 @@ jobs:
 
     - name: Run Acceptance Tests
       run: |
-        # Get service URLs
+        echo "Waiting for containers to start up..."
+        sleep 120  # Wait 2 minutes for containers to fully start
+        
+        # Get service IPs
         CUSTOMER_IP=$(az container show \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name staging-customer-service-${{ github.run_id }} \
@@ -166,14 +169,66 @@ jobs:
           --name staging-frontend-${{ github.run_id }} \
           --query ipAddress.ip -o tsv)
 
-        # Test health endpoints
-        curl -f http://$CUSTOMER_IP:8002/health || exit 1
-        curl -f http://$PRODUCT_IP:8001/health || exit 1
-        curl -f http://$ORDER_IP:8003/health || exit 1
-        curl -f http://$FRONTEND_IP:80 || exit 1
+        echo "Service IPs:"
+        echo "Customer Service: $CUSTOMER_IP:8002"
+        echo "Product Service: $PRODUCT_IP:8001"
+        echo "Order Service: $ORDER_IP:8003"
+        echo "Frontend: $FRONTEND_IP:80"
 
-        echo "All services are healthy!"
-        echo "Frontend URL: http://$FRONTEND_IP:80"
+        # Test health endpoints with retries
+        echo "Testing service health endpoints..."
+        
+        # Test Customer Service with retry
+        for i in {1..3}; do
+          echo "Testing Customer Service (attempt $i)..."
+          if curl -f --connect-timeout 10 --max-time 30 http://$CUSTOMER_IP:8002/health; then
+            echo "Customer Service is healthy!"
+            break
+          else
+            echo "Customer Service not ready, waiting 30 seconds..."
+            sleep 30
+          fi
+        done
+        
+        # Test Product Service with retry
+        for i in {1..3}; do
+          echo "Testing Product Service (attempt $i)..."
+          if curl -f --connect-timeout 10 --max-time 30 http://$PRODUCT_IP:8001/health; then
+            echo "Product Service is healthy!"
+            break
+          else
+            echo "Product Service not ready, waiting 30 seconds..."
+            sleep 30
+          fi
+        done
+        
+        # Test Order Service with retry
+        for i in {1..3}; do
+          echo "Testing Order Service (attempt $i)..."
+          if curl -f --connect-timeout 10 --max-time 30 http://$ORDER_IP:8003/health; then
+            echo "Order Service is healthy!"
+            break
+          else
+            echo "Order Service not ready, waiting 30 seconds..."
+            sleep 30
+          fi
+        done
+        
+        # Test Frontend with retry
+        for i in {1..3}; do
+          echo "Testing Frontend (attempt $i)..."
+          if curl -f --connect-timeout 10 --max-time 30 http://$FRONTEND_IP:80; then
+            echo "Frontend is healthy!"
+            break
+          else
+            echo "Frontend not ready, waiting 30 seconds..."
+            sleep 30
+          fi
+        done
+
+        echo "Staging deployment completed successfully!"
+        echo "Service URLs:"
+        echo "Frontend: http://$FRONTEND_IP:80"
         echo "Customer Service: http://$CUSTOMER_IP:8002"
         echo "Product Service: http://$PRODUCT_IP:8001"
         echo "Order Service: http://$ORDER_IP:8003"
