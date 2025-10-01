@@ -1,11 +1,14 @@
-# week05/frontend/Dockerfile
-
 FROM nginx:alpine
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/nginx.conf
 
-COPY . /usr/share/nginx/html
+# Copy frontend files
+COPY index.html /usr/share/nginx/html/
+COPY main.js /usr/share/nginx/html/
 
+# Expose port 80
 EXPOSE 80
 
+# Start nginx
 CMD ["nginx", "-g", "daemon off;"]

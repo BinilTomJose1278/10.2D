@@ -1,0 +1,204 @@
+name: Continuous Integration Pipeline
+
+on:
+  push:
+    branches: [ testing ]
+  pull_request:
+    branches: [ testing ]
+
+env:
+  AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+  REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      rabbitmq:
+        image: rabbitmq:3-management
+        env:
+          RABBITMQ_DEFAULT_USER: guest
+          RABBITMQ_DEFAULT_PASS: guest
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5672:5672
+          - 15672:15672
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    # Test Customer Service
+    - name: Test Customer Service
+      working-directory: ./backend/customer_service
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+        python -m pytest tests/ -v --tb=short
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+
+    # Test Order Service
+    - name: Test Order Service
+      working-directory: ./backend/order_service
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+        python -m pytest tests/ -v --tb=short
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        CUSTOMER_SERVICE_URL: http://localhost:8002
+        RABBITMQ_HOST: localhost
+        RABBITMQ_PORT: 5672
+        RABBITMQ_USER: guest
+        RABBITMQ_PASS: guest
+
+    # Test Product Service
+    - name: Test Product Service
+      working-directory: ./backend/product_service
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+        python -m pytest tests/ -v --tb=short
+      env:
+        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+        RABBITMQ_HOST: localhost
+        RABBITMQ_PORT: 5672
+        RABBITMQ_USER: guest
+        RABBITMQ_PASS: guest
+
+    # Build and test Docker images
+    - name: Build Customer Service Docker image
+      working-directory: ./backend/customer_service
+      run: |
+        docker build -t customer-service:${{ github.sha }} .
+        docker run --rm --detach --name customer-test \
+          --network host \
+          -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db \
+          customer-service:${{ github.sha }}
+        sleep 10
+        curl -f http://localhost:8002/health || exit 1
+        docker stop customer-test
+
+    - name: Build Order Service Docker image
+      working-directory: ./backend/order_service
+      run: |
+        docker build -t order-service:${{ github.sha }} .
+        docker run --rm --detach --name order-test \
+          --network host \
+          -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db \
+          -e CUSTOMER_SERVICE_URL=http://localhost:8002 \
+          -e RABBITMQ_HOST=localhost \
+          -e RABBITMQ_PORT=5672 \
+          -e RABBITMQ_USER=guest \
+          -e RABBITMQ_PASS=guest \
+          order-service:${{ github.sha }}
+        sleep 10
+        curl -f http://localhost:8003/health || exit 1
+        docker stop order-test
+
+    - name: Build Product Service Docker image
+      working-directory: ./backend/product_service
+      run: |
+        docker build -t product-service:${{ github.sha }} .
+        docker run --rm --detach --name product-test \
+          --network host \
+          -e DATABASE_URL=postgresql://postgres:postgres@localhost:5432/test_db \
+          -e RABBITMQ_HOST=localhost \
+          -e RABBITMQ_PORT=5672 \
+          -e RABBITMQ_USER=guest \
+          -e RABBITMQ_PASS=guest \
+          product-service:${{ github.sha }}
+        sleep 10
+        curl -f http://localhost:8001/health || exit 1
+        docker stop product-test
+
+    - name: Build Frontend Docker image
+      working-directory: ./frontend
+      run: |
+        docker build -t frontend:${{ github.sha }} .
+        docker run --rm --detach --name frontend-test \
+          --network host \
+          frontend:${{ github.sha }}
+        sleep 5
+        curl -f http://localhost:80 || exit 1
+        docker stop frontend-test
+
+    # Only push images to ACR if all tests pass
+    - name: Login to Azure Container Registry
+      if: success()
+      run: |
+        echo ${{ secrets.REGISTRY_PASSWORD }} | docker login ${{ secrets.AZURE_CONTAINER_REGISTRY }} -u ${{ secrets.REGISTRY_USERNAME }} --password-stdin
+
+    - name: Tag and Push Customer Service Image
+      if: success()
+      run: |
+        docker tag customer-service:${{ github.sha }} ${{ secrets.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.sha }}
+        docker tag customer-service:${{ github.sha }} ${{ secrets.AZURE_CONTAINER_REGISTRY }}/customer-service:latest
+        docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.sha }}
+        docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}/customer-service:latest
+
+    - name: Tag and Push Order Service Image
+      if: success()
+      run: |
+        docker tag order-service:${{ github.sha }} ${{ secrets.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.sha }}
+        docker tag order-service:${{ github.sha }} ${{ secrets.AZURE_CONTAINER_REGISTRY }}/order-service:latest
+        docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.sha }}
+        docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}/order-service:latest
+
+    - name: Tag and Push Product Service Image
+      if: success()
+      run: |
+        docker tag product-service:${{ github.sha }} ${{ secrets.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.sha }}
+        docker tag product-service:${{ github.sha }} ${{ secrets.AZURE_CONTAINER_REGISTRY }}/product-service:latest
+        docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.sha }}
+        docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}/product-service:latest
+
+    - name: Tag and Push Frontend Image
+      if: success()
+      run: |
+        docker tag frontend:${{ github.sha }} ${{ secrets.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.sha }}
+        docker tag frontend:${{ github.sha }} ${{ secrets.AZURE_CONTAINER_REGISTRY }}/frontend:latest
+        docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.sha }}
+        docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}/frontend:latest
+
+    # Trigger staging deployment after successful image push
+    - name: Trigger Staging Deployment
+      if: success()
+      uses: peter-evans/repository-dispatch@v2
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        event-type: images-pushed
+        client-payload: '{"images": ["customer-service", "order-service", "product-service", "frontend"], "sha": "${{ github.sha }}"}'

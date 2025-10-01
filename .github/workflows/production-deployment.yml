@@ -1,0 +1,151 @@
+name: Production Deployment Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+  REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+jobs:
+  deploy-to-production:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Deploy to Production Environment
+      run: |
+        # Update existing production containers with new images
+        
+        # Update Customer Service
+        az container create \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name production-customer-service \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.sha }} \
+          --ports 8002 \
+          --environment-variables \
+            DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL_CUSTOMER }} \
+          --cpu 2 \
+          --memory 2 \
+          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --registry-username ${{ env.REGISTRY_USERNAME }} \
+          --registry-password ${{ env.REGISTRY_PASSWORD }} \
+          --ip-address public \
+          --restart-policy Always \
+          --overwrite
+
+        # Update Product Service
+        az container create \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name production-product-service \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.sha }} \
+          --ports 8001 \
+          --environment-variables \
+            DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL_PRODUCT }} \
+            RABBITMQ_HOST=${{ secrets.PRODUCTION_RABBITMQ_HOST }} \
+            RABBITMQ_PORT=${{ secrets.PRODUCTION_RABBITMQ_PORT }} \
+            RABBITMQ_USER=${{ secrets.PRODUCTION_RABBITMQ_USER }} \
+            RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
+            AZURE_STORAGE_ACCOUNT_NAME=${{ secrets.PRODUCTION_AZURE_STORAGE_ACCOUNT_NAME }} \
+            AZURE_STORAGE_ACCOUNT_KEY=${{ secrets.PRODUCTION_AZURE_STORAGE_ACCOUNT_KEY }} \
+          --cpu 2 \
+          --memory 2 \
+          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --registry-username ${{ env.REGISTRY_USERNAME }} \
+          --registry-password ${{ env.REGISTRY_PASSWORD }} \
+          --ip-address public \
+          --restart-policy Always \
+          --overwrite
+
+        # Update Order Service
+        az container create \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name production-order-service \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.sha }} \
+          --ports 8003 \
+          --environment-variables \
+            DATABASE_URL=${{ secrets.PRODUCTION_DATABASE_URL_ORDER }} \
+            CUSTOMER_SERVICE_URL=${{ secrets.PRODUCTION_CUSTOMER_SERVICE_URL }} \
+            RABBITMQ_HOST=${{ secrets.PRODUCTION_RABBITMQ_HOST }} \
+            RABBITMQ_PORT=${{ secrets.PRODUCTION_RABBITMQ_PORT }} \
+            RABBITMQ_USER=${{ secrets.PRODUCTION_RABBITMQ_USER }} \
+            RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
+          --cpu 2 \
+          --memory 2 \
+          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --registry-username ${{ env.REGISTRY_USERNAME }} \
+          --registry-password ${{ env.REGISTRY_PASSWORD }} \
+          --ip-address public \
+          --restart-policy Always \
+          --overwrite
+
+        # Update Frontend
+        az container create \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name production-frontend \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.sha }} \
+          --ports 80 \
+          --cpu 1 \
+          --memory 1 \
+          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --registry-username ${{ env.REGISTRY_USERNAME }} \
+          --registry-password ${{ env.REGISTRY_PASSWORD }} \
+          --ip-address public \
+          --restart-policy Always \
+          --overwrite
+
+    - name: Wait for Deployment
+      run: |
+        sleep 30
+        echo "Waiting for services to be ready..."
+
+    - name: Verify Production Deployment
+      run: |
+        # Get production service IPs
+        CUSTOMER_IP=$(az container show \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name production-customer-service \
+          --query ipAddress.ip -o tsv)
+        
+        PRODUCT_IP=$(az container show \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name production-product-service \
+          --query ipAddress.ip -o tsv)
+        
+        ORDER_IP=$(az container show \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name production-order-service \
+          --query ipAddress.ip -o tsv)
+        
+        FRONTEND_IP=$(az container show \
+          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --name production-frontend \
+          --query ipAddress.ip -o tsv)
+
+        # Test health endpoints
+        curl -f http://$CUSTOMER_IP:8002/health || exit 1
+        curl -f http://$PRODUCT_IP:8001/health || exit 1
+        curl -f http://$ORDER_IP:8003/health || exit 1
+        curl -f http://$FRONTEND_IP:80 || exit 1
+
+        echo "Production deployment successful!"
+        echo "Frontend URL: http://$FRONTEND_IP:80"
+        echo "Customer Service: http://$CUSTOMER_IP:8002"
+        echo "Product Service: http://$PRODUCT_IP:8001"
+        echo "Order Service: http://$ORDER_IP:8003"
+
+    - name: Send Deployment Notification
+      run: |
+        echo "Production deployment completed successfully for commit ${{ github.sha }}"
+        echo "Services are now running the latest version"
