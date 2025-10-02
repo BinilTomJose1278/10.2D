@@ -12,42 +12,7 @@ env:
   AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
 jobs:
-  wait-for-staging:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-    - name: Wait for Staging to Complete
-      run: |
-        echo "Waiting for staging containers to be cleaned up..."
-        
-        # Wait for staging containers to be cleaned up
-        for i in {1..20}; do
-          STAGING_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'staging-')] | length(@)")
-          
-          if [ "$STAGING_COUNT" -eq "0" ]; then
-            echo "✅ No staging containers found. Staging pipeline complete. Proceeding with production..."
-            break
-          else
-            echo "⏳ Still $STAGING_COUNT staging containers running. Waiting 30 seconds... (Attempt $i/20)"
-            sleep 30
-          fi
-        done
-        
-        # Final check
-        FINAL_STAGING_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'staging-')] | length(@)")
-        
-        if [ "$FINAL_STAGING_COUNT" -gt "0" ]; then
-          echo "⚠️ WARNING: Still $FINAL_STAGING_COUNT staging containers after 10 minutes. Proceeding anyway..."
-        else
-          echo "✅ All staging containers cleaned up successfully!"
-        fi
-
   deploy-to-production:
-    needs: wait-for-staging
     runs-on: ubuntu-latest
     
     steps:
