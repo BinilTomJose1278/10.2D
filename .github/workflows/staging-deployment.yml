@@ -240,6 +240,8 @@ jobs:
       - name: Wait for Services to be Ready
         run: sleep 60
 
+    
+
       - name: Cleanup Staging Infrastructure (ACI only)
         if: always()
         run: az group delete --name "${{ env.STAGING_RESOURCE_GROUP }}" --yes --no-wait
