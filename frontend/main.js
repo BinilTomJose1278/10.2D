@@ -1,11 +1,26 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // API endpoints for the Product, Order, and Customer services.
-    // These ports are mapped from the Docker containers to the host machine in docker-compose.yml.
-    const PRODUCT_API_BASE_URL = '';
-    const ORDER_API_BASE_URL = '';
-    const CUSTOMER_API_BASE_URL = '';
+    // =========================
+    // API BASE URLS (NO LOCALHOST, NO IPs)
+    // Prefer values injected via index.html like:
+    // <script>
+    //   window.API = {
+    //     PRODUCT: "http://btj-product-svc-aue.australiaeast.azurecontainer.io:8000",
+    //     ORDER:   "http://btj-order-svc-aue.australiaeast.azurecontainer.io:8000",
+    //     CUSTOMER:"http://btj-customer-svc-aue.australiaeast.azurecontainer.io:8000"
+    //   };
+    // </script>
+    // If not provided, fallback to the ACI FQDNs below.
+    // =========================
+    const PRODUCT_API_BASE_URL  = (window.API && window.API.PRODUCT)
+        || 'http://btj-product-svc-aue.australiaeast.azurecontainer.io:8000';
+    const ORDER_API_BASE_URL    = (window.API && window.API.ORDER)
+        || 'http://btj-order-svc-aue.australiaeast.azurecontainer.io:8000';
+    const CUSTOMER_API_BASE_URL = (window.API && window.API.CUSTOMER)
+        || 'http://btj-customer-svc-aue.australiaeast.azurecontainer.io:8000';
 
+    // =========================
     // DOM Elements
+    // =========================
     const messageBox = document.getElementById('message-box');
     const productForm = document.getElementById('product-form');
     const productListDiv = document.getElementById('product-list');
@@ -16,13 +31,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const placeOrderForm = document.getElementById('place-order-form');
     const orderListDiv = document.getElementById('order-list');
 
+    // =========================
     // Shopping Cart State
+    // =========================
     let cart = [];
     let productsCache = {}; // Cache products fetched to easily get details for cart items
 
-    // --- Utility Functions ---
-
-    // Function to display messages to the user (success, error, info)
+    // =========================
+    // Utility Functions
+    // =========================
     function showMessage(message, type = 'info') {
         messageBox.textContent = message;
         messageBox.className = `message-box ${type}`;
@@ -33,28 +50,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 5000);
     }
 
-    // Function to format currency
     function formatCurrency(amount) {
         return `$${parseFloat(amount).toFixed(2)}`;
     }
 
-    // --- Product Service Interactions ---
-
-    // Fetch and display products
+    // =========================
+    // Product Service Interactions
+    // =========================
     async function fetchProducts() {
         productListDiv.innerHTML = '<p>Loading products...</p>';
         try {
             const response = await fetch(`${PRODUCT_API_BASE_URL}/products/`);
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
             }
             const products = await response.json();
-            
+
             productListDiv.innerHTML = ''; // Clear previous content
             productsCache = {}; // Clear existing cache
 
-            if (products.length === 0) {
+            if (!Array.isArray(products) || products.length === 0) {
                 productListDiv.innerHTML = '<p>No products available yet. Add some above!</p>';
                 return;
             }
@@ -63,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 productsCache[product.product_id] = product; // Cache product details
                 const productCard = document.createElement('div');
                 productCard.className = 'product-card';
-                
+
                 productCard.innerHTML = `
                     <img src="${product.image_url || 'https://placehold.co/300x200/cccccc/333333?text=No+Image'}" alt="${product.name}" onerror="this.onerror=null;this.src='https://placehold.co/300x200/cccccc/333333?text=Image+Error';" />
                     <h3>${product.name} (ID: ${product.product_id})</h3>
@@ -91,7 +107,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Handle form submission for adding a new product
     productForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
@@ -105,45 +120,39 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`${PRODUCT_API_BASE_URL}/products/`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newProduct),
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : `HTTP error! status: ${response.status}`);
             }
 
             const addedProduct = await response.json();
             showMessage(`Product "${addedProduct.name}" added successfully! ID: ${addedProduct.product_id}`, 'success');
-            productForm.reset(); // Clear the form
-            fetchProducts(); // Refresh the list of products
+            productForm.reset();
+            fetchProducts();
         } catch (error) {
             console.error('Error adding product:', error);
             showMessage(`Error adding product: ${error.message}`, 'error');
         }
     });
 
-    // Handle product card actions (delete, add to cart, upload image)
     productListDiv.addEventListener('click', async (event) => {
         // Delete Product
         if (event.target.classList.contains('delete-btn')) {
             const productId = event.target.dataset.id;
-            if (!confirm(`Are you sure you want to delete product ID: ${productId}?`)) {
-                return;
-            }
+            if (!confirm(`Are you sure you want to delete product ID: ${productId}?`)) return;
+
             try {
-                const response = await fetch(`${PRODUCT_API_BASE_URL}/products/${productId}`, {
-                    method: 'DELETE',
-                });
+                const response = await fetch(`${PRODUCT_API_BASE_URL}/products/${productId}`, { method: 'DELETE' });
 
                 if (response.status === 204) {
                     showMessage(`Product ID: ${productId} deleted successfully.`, 'success');
-                    fetchProducts(); // Refresh the list
+                    fetchProducts();
                 } else {
-                    const errorData = await response.json();
+                    const errorData = await response.json().catch(() => ({}));
                     throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : `HTTP error! status: ${response.status}`);
                 }
             } catch (error) {
@@ -157,7 +166,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const productId = event.target.dataset.id;
             const productName = event.target.dataset.name;
             const productPrice = parseFloat(event.target.dataset.price);
-            
             addToCart(productId, productName, productPrice);
         }
 
@@ -183,14 +191,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json();
+                    const errorData = await response.json().catch(() => ({}));
                     throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : `HTTP error! status: ${response.status}`);
                 }
 
                 const updatedProduct = await response.json();
                 showMessage(`Image uploaded successfully for product ${updatedProduct.name}!`, 'success');
-                fileInput.value = ''; // Clear file input
-                fetchProducts(); // Refresh products to show new image URL
+                fileInput.value = '';
+                fetchProducts();
             } catch (error) {
                 console.error('Error uploading image:', error);
                 showMessage(`Error uploading image: ${error.message}`, 'error');
@@ -198,21 +206,16 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-
-    // --- Shopping Cart Functions ---
-
+    // =========================
+    // Shopping Cart Functions
+    // =========================
     function addToCart(productId, productName, productPrice) {
-        const existingItemIndex = cart.findIndex(item => item.product_id === productId);
+        const existingIndex = cart.findIndex(item => item.product_id === productId);
 
-        if (existingItemIndex !== -1) {
-            cart[existingItemIndex].quantity += 1;
+        if (existingIndex !== -1) {
+            cart[existingIndex].quantity += 1;
         } else {
-            cart.push({
-                product_id: productId,
-                name: productName,
-                price: productPrice,
-                quantity: 1
-            });
+            cart.push({ product_id: productId, name: productName, price: productPrice, quantity: 1 });
         }
         updateCartDisplay();
         showMessage(`Added "${productName}" to cart!`, 'info');
@@ -239,23 +242,22 @@ document.addEventListener('DOMContentLoaded', () => {
         cartTotalSpan.textContent = `Total: ${formatCurrency(totalCartAmount)}`;
     }
 
-
-    // --- Customer Service Interactions ---
-
-    // Fetch and display customers
+    // =========================
+    // Customer Service Interactions
+    // =========================
     async function fetchCustomers() {
         customerListDiv.innerHTML = '<p>Loading customers...</p>';
         try {
             const response = await fetch(`${CUSTOMER_API_BASE_URL}/customers/`);
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
             }
             const customers = await response.json();
-            
-            customerListDiv.innerHTML = ''; // Clear previous content
 
-            if (customers.length === 0) {
+            customerListDiv.innerHTML = '';
+
+            if (!Array.isArray(customers) || customers.length === 0) {
                 customerListDiv.innerHTML = '<p>No customers available yet. Add some above!</p>';
                 return;
             }
@@ -282,7 +284,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Handle form submission for adding a new customer
     customerForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
@@ -298,44 +299,38 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch(`${CUSTOMER_API_BASE_URL}/customers/`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newCustomer),
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : `HTTP error! status: ${response.status}`);
             }
 
             const addedCustomer = await response.json();
             showMessage(`Customer "${addedCustomer.email}" added successfully! ID: ${addedCustomer.customer_id}`, 'success');
-            customerForm.reset(); // Clear the form
-            fetchCustomers(); // Refresh the list of customers
+            customerForm.reset();
+            fetchCustomers();
         } catch (error) {
             console.error('Error adding customer:', error);
             showMessage(`Error adding customer: ${error.message}`, 'error');
         }
     });
 
-    // Handle customer delete buttons (using event delegation)
     customerListDiv.addEventListener('click', async (event) => {
         if (event.target.classList.contains('delete-customer-btn')) {
             const customerId = event.target.dataset.id;
-            if (!confirm(`Are you sure you want to delete customer ID: ${customerId}?`)) {
-                return;
-            }
+            if (!confirm(`Are you sure you want to delete customer ID: ${customerId}?`)) return;
+
             try {
-                const response = await fetch(`${CUSTOMER_API_BASE_URL}/customers/${customerId}`, {
-                    method: 'DELETE',
-                });
+                const response = await fetch(`${CUSTOMER_API_BASE_URL}/customers/${customerId}`, { method: 'DELETE' });
 
                 if (response.status === 204) {
                     showMessage(`Customer ID: ${customerId} deleted successfully.`, 'success');
-                    fetchCustomers(); // Refresh the list
+                    fetchCustomers();
                 } else {
-                    const errorData = await response.json();
+                    const errorData = await response.json().catch(() => ({}));
                     throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : `HTTP error! status: ${response.status}`);
                 }
             } catch (error) {
@@ -345,10 +340,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-
-    // --- Order Service Interactions ---
-
-    // Handle form submission for placing a new order
+    // =========================
+    // Order Service Interactions
+    // =========================
     placeOrderForm.addEventListener('submit', async (event) => {
         event.preventDefault();
 
@@ -360,64 +354,53 @@ document.addEventListener('DOMContentLoaded', () => {
         const userId = parseInt(document.getElementById('order-user-id').value, 10);
         const shippingAddress = document.getElementById('shipping-address').value;
 
-        // Map cart items to OrderItemCreate schema
         const orderItems = cart.map(item => ({
             product_id: parseInt(item.product_id, 10),
             quantity: item.quantity,
             price_at_purchase: item.price
         }));
 
-        const newOrder = {
-            user_id: userId,
-            shipping_address: shippingAddress,
-            items: orderItems
-        };
+        const newOrder = { user_id: userId, shipping_address: shippingAddress, items: orderItems };
 
         try {
-            // Order service will now create order with 'pending' status
-            // and publish an event for stock deduction.
             showMessage("Placing order... (status will update asynchronously)", 'info');
             const response = await fetch(`${ORDER_API_BASE_URL}/orders/`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(newOrder),
             });
 
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : `HTTP error! status: ${response.status}`);
             }
 
             const placedOrder = await response.json();
             showMessage(`Order ${placedOrder.order_id} created with initial status: ${placedOrder.status}. Stock deduction pending.`, 'success');
-            
-            cart = []; // Clear cart after successful order placement
+
+            cart = [];
             updateCartDisplay();
-            placeOrderForm.reset(); // Clear form
-            fetchOrders(); // Refresh order list to show the new 'pending' order
-            // No longer fetching products here directly, as stock update is asynchronous
+            placeOrderForm.reset();
+            fetchOrders();
         } catch (error) {
             console.error('Error placing order:', error);
             showMessage(`Error placing order: ${error.message}`, 'error');
         }
     });
 
-    // Fetch and display orders
     async function fetchOrders() {
         orderListDiv.innerHTML = '<p>Loading orders...</p>';
         try {
             const response = await fetch(`${ORDER_API_BASE_URL}/orders/`);
             if (!response.ok) {
-                const errorData = await response.json();
+                const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
             }
             const orders = await response.json();
-            
-            orderListDiv.innerHTML = ''; // Clear previous content
 
-            if (orders.length === 0) {
+            orderListDiv.innerHTML = '';
+
+            if (!Array.isArray(orders) || orders.length === 0) {
                 orderListDiv.innerHTML = '<p>No orders available yet.</p>';
                 return;
             }
@@ -434,7 +417,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <p>Shipping Address: ${order.shipping_address || 'N/A'}</p>
                     <p><small>Created: ${new Date(order.created_at).toLocaleString()}</small></p>
                     <p><small>Last Updated: ${new Date(order.updated_at).toLocaleString()}</small></p>
-                    
+
                     <h4>Items:</h4>
                     <ul class="order-items">
                         ${order.items.map(item => `
@@ -450,7 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <option value="processing" ${order.status === 'processing' ? 'selected' : ''}>Processing</option>
                             <option value="shipped" ${order.status === 'shipped' ? 'selected' : ''}>Shipped</option>
                             <option value="confirmed" ${order.status === 'confirmed' ? 'selected' : ''}>Confirmed</option>
-                            <option value="failed" ${order.status === 'failed' ? 'selected' : ''}>Failed</option> <!-- NEW: Failed Status -->
+                            <option value="failed" ${order.status === 'failed' ? 'selected' : ''}>Failed</option>
                             <option value="cancelled" ${order.status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
                             <option value="completed" ${order.status === 'completed' ? 'selected' : ''}>Completed</option>
                         </select>
@@ -469,7 +452,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Handle order status update and delete buttons (using event delegation)
     orderListDiv.addEventListener('click', async (event) => {
         // Update Order Status
         if (event.target.classList.contains('status-update-btn')) {
@@ -479,23 +461,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
             try {
                 showMessage(`Updating status for order ${orderId} to "${newStatus}"...`, 'info');
-                const response = await fetch(`${ORDER_API_BASE_URL}/orders/${orderId}/status`, { // PATCH request now uses body
+                const response = await fetch(`${ORDER_API_BASE_URL}/orders/${orderId}/status`, {
                     method: 'PATCH',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ status: newStatus }), // Send status in body
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus }),
                 });
 
                 if (!response.ok) {
-                    const errorData = await response.json();
+                    const errorData = await response.json().catch(() => ({}));
                     throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : `HTTP error! status: ${response.status}`);
                 }
 
                 const updatedOrder = await response.json();
                 document.getElementById(`order-status-${orderId}`).textContent = updatedOrder.status;
                 showMessage(`Order ${orderId} status updated to "${updatedOrder.status}"!`, 'success');
-                fetchOrders(); // Refresh the list to reflect any changes if needed
+                fetchOrders();
             } catch (error) {
                 console.error('Error updating order status:', error);
                 showMessage(`Error updating order status: ${error.message}`, 'error');
@@ -505,19 +485,16 @@ document.addEventListener('DOMContentLoaded', () => {
         // Delete Order
         if (event.target.classList.contains('delete-btn')) {
             const orderId = event.target.dataset.id;
-            if (!confirm(`Are you sure you want to delete order ID: ${orderId}? This will also delete all associated items.`)) {
-                return;
-            }
+            if (!confirm(`Are you sure you want to delete order ID: ${orderId}? This will also delete all associated items.`)) return;
+
             try {
-                const response = await fetch(`${ORDER_API_BASE_URL}/orders/${orderId}`, {
-                    method: 'DELETE',
-                });
+                const response = await fetch(`${ORDER_API_BASE_URL}/orders/${orderId}`, { method: 'DELETE' });
 
                 if (response.status === 204) {
                     showMessage(`Order ID: ${orderId} deleted successfully.`, 'success');
-                    fetchOrders(); // Refresh the list
+                    fetchOrders();
                 } else {
-                    const errorData = await response.json();
+                    const errorData = await response.json().catch(() => ({}));
                     throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : `HTTP error! status: ${response.status}`);
                 }
             } catch (error) {
@@ -527,14 +504,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Initial data fetch on page load
+    // =========================
+    // Initial fetch + periodic refresh
+    // =========================
     fetchProducts();
-    fetchCustomers(); // NEW: Fetch customers on load
+    fetchCustomers();
     fetchOrders();
 
-    // Set up a periodic refresh for orders (e.g., every 10 seconds)
-    // This helps show asynchronous status updates from RabbitMQ in real-time
-    setInterval(fetchOrders, 10000); // Refresh orders every 10 seconds
+    // Periodic refresh
+    setInterval(fetchOrders, 10000);   // Refresh orders every 10 seconds
     setInterval(fetchProducts, 15000); // Refresh products every 15 seconds to see stock changes
-
 });
