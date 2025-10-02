@@ -24,11 +24,35 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Deploy to Production (all on :8000 with DNS)
+       - name: Deploy to Production (all on :8000 with DNS)
+      shell: bash
       run: |
-        # RabbitMQ (ensure DNS label exists; comment out if you already have it)
+        set -euo pipefail
+
+        rg="${{ env.AZURE_RESOURCE_GROUP }}"
+        acr="${{ env.AZURE_CONTAINER_REGISTRY }}"
+        acr_user="${{ env.REGISTRY_USERNAME }}"
+        acr_pass="${{ env.REGISTRY_PASSWORD }}"
+        sha="${{ github.sha }}"
+
+        # helper: delete if exists (idempotent)
+        del_if_exists () {
+          local name="$1"
+          if az container show -g "$rg" -n "$name" >/dev/null 2>&1; then
+            echo "Deleting existing container group: $name"
+            az container delete -g "$rg" -n "$name" -y
+            # wait until gone to free the DNS label
+            while az container show -g "$rg" -n "$name" >/dev/null 2>&1; do
+              echo "Waiting for $name to be removed..."
+              sleep 5
+            done
+          fi
+        }
+
+        # --- RabbitMQ ---
+        del_if_exists production-rabbitmq
         az container create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --resource-group "$rg" \
           --name production-rabbitmq \
           --image rabbitmq:3-management \
           --ports 5672 15672 \
@@ -36,14 +60,14 @@ jobs:
           --os-type Linux \
           --ip-address Public \
           --dns-name-label btj-rmq-aue \
-          --restart-policy Always \
-          --overwrite
+          --restart-policy Always
 
-        # PRODUCT (port 8000 + DNS)
+        # --- PRODUCT (port 8000 + DNS) ---
+        del_if_exists production-product-service
         az container create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --resource-group "$rg" \
           --name production-product-service \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.sha }} \
+          --image "$acr/product-service:$sha" \
           --ports 8000 \
           --cpu 1 --memory 1.5 \
           --os-type Linux \
@@ -60,17 +84,17 @@ jobs:
           --secure-environment-variables \
             POSTGRES_PASSWORD=${{ secrets.PRODUCTION_POSTGRES_PASSWORD }} \
             RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --restart-policy Always \
-          --overwrite
+          --registry-login-server "$acr" \
+          --registry-username "$acr_user" \
+          --registry-password "$acr_pass" \
+          --restart-policy Always
 
-        # CUSTOMER (port 8000 + DNS)
+        # --- CUSTOMER (port 8000 + DNS) ---
+        del_if_exists production-customer-service
         az container create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --resource-group "$rg" \
           --name production-customer-service \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.sha }} \
+          --image "$acr/customer-service:$sha" \
           --ports 8000 \
           --cpu 1 --memory 1.5 \
           --os-type Linux \
@@ -87,17 +111,17 @@ jobs:
           --secure-environment-variables \
             POSTGRES_PASSWORD=${{ secrets.PRODUCTION_POSTGRES_PASSWORD }} \
             RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --restart-policy Always \
-          --overwrite
+          --registry-login-server "$acr" \
+          --registry-username "$acr_user" \
+          --registry-password "$acr_pass" \
+          --restart-policy Always
 
-        # ORDER (port 8000 + DNS + service URLs)
+        # --- ORDER (port 8000 + DNS + service URLs) ---
+        del_if_exists production-order-service
         az container create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --resource-group "$rg" \
           --name production-order-service \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.sha }} \
+          --image "$acr/order-service:$sha" \
           --ports 8000 \
           --cpu 1 --memory 1.5 \
           --os-type Linux \
@@ -116,27 +140,27 @@ jobs:
           --secure-environment-variables \
             POSTGRES_PASSWORD=${{ secrets.PRODUCTION_POSTGRES_PASSWORD }} \
             RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --restart-policy Always \
-          --overwrite
+          --registry-login-server "$acr" \
+          --registry-username "$acr_user" \
+          --registry-password "$acr_pass" \
+          --restart-policy Always
 
-        # FRONTEND (DNS + :80)
+        # --- FRONTEND (DNS + :80) ---
+        del_if_exists production-frontend
         az container create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+          --resource-group "$rg" \
           --name production-frontend \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.sha }} \
+          --image "$acr/frontend:$sha" \
           --ports 80 \
           --cpu 1 --memory 1 \
           --os-type Linux \
           --ip-address Public \
           --dns-name-label btj-frontend-aue \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --restart-policy Always \
-          --overwrite
+          --registry-login-server "$acr" \
+          --registry-username "$acr_user" \
+          --registry-password "$acr_pass" \
+          --restart-policy Always
+
 
     - name: Verify Production Deployment (FQDNs on :8000)
       run: |
