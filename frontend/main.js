@@ -1,9 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
     // API endpoints for the Product, Order, and Customer services.
     // These are the actual Azure Container Instance IP addresses and ports.
-    const PRODUCT_API_BASE_URL = 'http://4.237.40.154:8001';
-    const ORDER_API_BASE_URL = 'http://20.11.74.93:8003';
-    const CUSTOMER_API_BASE_URL = 'http://4.237.240.193:8002';
+    const PRODUCT_API_BASE_URL = 'http://20.167.111.148:8001';
+    const ORDER_API_BASE_URL = 'http://4.195.133.166:8003';
+    const CUSTOMER_API_BASE_URL = 'http://4.147.244.124:8002';
 
     // DOM Elements
     const messageBox = document.getElementById('message-box');
