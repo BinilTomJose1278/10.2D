@@ -1,21 +1,21 @@
-name: Staging Deployment Pipeline (reuse existing Postgres)
+name: Staging Deployment Pipeline (reuse existing Postgres + tag fallback)
 
 on:
   workflow_dispatch:
     inputs:
       image_sha:
-        description: 'Image SHA to deploy'
+        description: 'Image SHA to deploy (falls back to latest if missing)'
         required: true
         default: 'latest'
   push:
     branches: [ main ]
 
 env:
-  AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
-  REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-  STAGING_RESOURCE_GROUP: ${{ secrets.STAGING_RESOURCE_GROUP }}
+  AZURE_CONTAINER_REGISTRY: ${{ secrets.AZURE_CONTAINER_REGISTRY }}   # e.g. btjcommerceacr.azurecr.io
+  REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}                 # e.g. btjcommerceacr
+  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}                 # ACR password (or SP with AcrPull)
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}         # 7af663eb-f33a-4bfb-8590-39fea237804d
+  STAGING_RESOURCE_GROUP: ${{ secrets.STAGING_RESOURCE_GROUP }}       # e.g. ecommerce-staging-rg
   LOCATION: australiaeast
 
   # Existing Postgres server (shared with prod)
@@ -70,6 +70,40 @@ jobs:
           echo "db_order=$DB_ORD"     >> "$GITHUB_OUTPUT"
           echo "db_product=$DB_PROD"  >> "$GITHUB_OUTPUT"
 
+      # PREFLIGHT: pick tag (prefer input sha, fallback to latest if missing in ANY repo)
+      - name: Pick image tag (prefer input SHA, fallback to latest if missing)
+        id: picktag
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACR="${{ env.AZURE_CONTAINER_REGISTRY }}"             # e.g., btjcommerceacr.azurecr.io
+          ACR_NAME="$(echo "$ACR" | cut -d. -f1)"               # e.g., btjcommerceacr
+          REPOS=("product-service" "customer-service" "order-service" "frontend")
+          WANT="${{ github.event.inputs.image_sha || github.sha }}"
+
+          echo "Requested image tag: $WANT"
+          az acr login --name "$ACR_NAME"
+
+          missing=0
+          for r in "${REPOS[@]}"; do
+            found=$(az acr repository show-tags -n "$ACR_NAME" --repository "$r" \
+              --query "contains(@, '$WANT')" -o tsv || echo false)
+            echo "Repo $r has tag $WANT ? $found"
+            if [ "$found" != "true" ]; then
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -eq 1 ]; then
+            echo "At least one repo is missing tag '$WANT'. Falling back to 'latest' for all."
+            USE="latest"
+          else
+            USE="$WANT"
+          fi
+
+          echo "Using image tag: $USE"
+          echo "tag=$USE" >> "$GITHUB_OUTPUT"
+
       - name: Create Staging RabbitMQ (DNS in australiaeast)
         run: |
           az container create \
@@ -92,12 +126,12 @@ jobs:
           ACR="${{ env.AZURE_CONTAINER_REGISTRY }}"
           ACR_USER="${{ env.REGISTRY_USERNAME }}"
           ACR_PASS="${{ env.REGISTRY_PASSWORD }}"
-          SHA="${{ github.event.inputs.image_sha || github.sha }}"
+          TAG="${{ steps.picktag.outputs.tag }}"
 
           # Existing server connection
-          PG_HOST="${{ secrets.STAGING_POSTGRES_HOST }}"
+          PG_HOST="${{ secrets.STAGING_POSTGRES_HOST }}"           # btj-ecommerce-postgres.postgres.database.azure.com
           PG_USER="postgres"
-          PG_PASS="${{ secrets.postgress_passsowrd }}"
+          PG_PASS="${{ secrets.postgress_passsowrd }}"             # <-- your secret
 
           DB_CUST="${{ steps.pgdb.outputs.db_customer }}"
           DB_ORD="${{ steps.pgdb.outputs.db_order }}"
@@ -109,7 +143,7 @@ jobs:
           az container create \
             --resource-group "$RG" \
             --name "staging-product-service-${{ github.run_id }}" \
-            --image "$ACR/product-service:$SHA" \
+            --image "$ACR/product-service:$TAG" \
             --ports 8000 \
             --cpu 1 --memory 1.5 \
             --os-type Linux \
@@ -135,7 +169,7 @@ jobs:
           az container create \
             --resource-group "$RG" \
             --name "staging-customer-service-${{ github.run_id }}" \
-            --image "$ACR/customer-service:$SHA" \
+            --image "$ACR/customer-service:$TAG" \
             --ports 8000 \
             --cpu 1 --memory 1.5 \
             --os-type Linux \
@@ -164,7 +198,7 @@ jobs:
           az container create \
             --resource-group "$RG" \
             --name "staging-order-service-${{ github.run_id }}" \
-            --image "$ACR/order-service:$SHA" \
+            --image "$ACR/order-service:$TAG" \
             --ports 8000 \
             --cpu 1 --memory 1.5 \
             --os-type Linux \
@@ -192,7 +226,7 @@ jobs:
           az container create \
             --resource-group "$RG" \
             --name "staging-frontend-${{ github.run_id }}" \
-            --image "$ACR/frontend:$SHA" \
+            --image "$ACR/frontend:$TAG" \
             --ports 80 \
             --cpu 1 --memory 1 \
             --os-type Linux \
