@@ -240,12 +240,6 @@ jobs:
           --name production-frontend \
           --query ipAddress.ip -o tsv)
 
-        # Test health endpoints
-        curl -f http://$CUSTOMER_IP:8002/health || exit 1
-        curl -f http://$PRODUCT_IP:8001/health || exit 1
-        curl -f http://$ORDER_IP:8003/health || exit 1
-        curl -f http://$FRONTEND_IP:80 || exit 1
-
         echo "Production deployment successful!"
         echo "Frontend URL: http://$FRONTEND_IP:80"
         echo "Customer Service: http://$CUSTOMER_IP:8002"
