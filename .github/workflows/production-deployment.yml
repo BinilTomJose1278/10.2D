@@ -14,7 +14,7 @@ env:
 jobs:
   deploy-to-production:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -24,229 +24,133 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Emergency Container Cleanup
+    - name: Deploy to Production (all on :8000 with DNS)
       run: |
-        echo "EMERGENCY CLEANUP: Cleaning up ALL containers in resource group!"
-        
-        # Get current container count
-        CURRENT_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
-        echo "Current container count: $CURRENT_COUNT/10"
-        
-        # Delete staging containers first (they're competing for quota)
-        echo "Deleting staging containers first to free up quota..."
-        STAGING_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[?contains(name, 'staging-')].name" -o tsv)
-        
-        if [ -n "$STAGING_CONTAINERS" ]; then
-          echo "Deleting staging containers:"
-          echo "$STAGING_CONTAINERS"
-          
-          for container in $STAGING_CONTAINERS; do
-            echo "Force deleting staging container: $container"
-            az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
-          done
-          echo "Staging containers deleted. Waiting 30 seconds..."
-          sleep 30
-        fi
-        
-        # Then delete ALL remaining containers
-        echo "Deleting ALL remaining containers to free up quota..."
-        
-        # Get ALL containers in the resource group
-        ALL_CONTAINERS=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "[].name" -o tsv)
-        
-        if [ -n "$ALL_CONTAINERS" ]; then
-          echo "Deleting ALL containers:"
-          echo "$ALL_CONTAINERS"
-          
-          for container in $ALL_CONTAINERS; do
-            echo "Force deleting: $container"
-            az container delete --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --name $container --yes || true
-          done
-          
-          # Wait and verify cleanup with retry logic
-          echo "Waiting for deletion to complete..."
-          MAX_RETRIES=30
-          RETRY_COUNT=0
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            CURRENT_COUNT=$(az container list --resource-group ${{ env.AZURE_RESOURCE_GROUP }} --query "length(@)")
-            echo "Current container count: $CURRENT_COUNT/10 (Attempt $((RETRY_COUNT+1))/$MAX_RETRIES)"
-            
-            if [ $CURRENT_COUNT -le 0 ]; then
-              echo "SUCCESS: Cleanup complete. Safe to deploy."
-              break
-            fi
-            
-            sleep 10
-            RETRY_COUNT=$((RETRY_COUNT+1))
-          done
-          
-          if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
-            echo "ERROR: Cleanup did not complete in time. Manual intervention required."
-            exit 1
-          fi
-        else
-          echo "No containers found to delete"
-        fi
-
-    - name: Deploy to Production Environment (Sequential)
-      run: |
-        echo "Creating production containers sequentially to avoid quota issues..."
-        
-        # Create RabbitMQ first
-        echo "Creating RabbitMQ container..."
+        # RabbitMQ (ensure DNS label exists; comment out if you already have it)
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-rabbitmq \
           --image rabbitmq:3-management \
-          --os-type Linux \
           --ports 5672 15672 \
-          --cpu 1 \
-          --memory 1 \
-          --ip-address public
-        sleep 20
-        
-        # Create Customer Service
-        echo "Creating Customer Service container (1/5)..."
-        az container create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --name production-customer-service \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:latest \
+          --cpu 1 --memory 1 \
           --os-type Linux \
-          --ports 8002 \
-          --environment-variables \
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }} \
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
-            POSTGRES_DB=customer_db \
-            POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
-            POSTGRES_PORT=5432 \
-            POSTGRES_SSLMODE=require \
-          --cpu 1 \
-          --memory 1.5 \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --ip-address public \
-          --restart-policy Always
-        echo "Customer Service created. Waiting 30 seconds before next container..."
-        sleep 30
+          --ip-address Public \
+          --dns-name-label btj-rmq-aue \
+          --restart-policy Always \
+          --overwrite
 
-        # Create Product Service
-        echo "Creating Product Service container (2/5)..."
+        # PRODUCT (port 8000 + DNS)
         az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-product-service \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:latest \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.sha }} \
+          --ports 8000 \
+          --cpu 1 --memory 1.5 \
           --os-type Linux \
-          --ports 8001 \
+          --ip-address Public \
+          --dns-name-label btj-product-svc-aue \
           --environment-variables \
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }} \
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
+            POSTGRES_USER=postgres \
             POSTGRES_DB=product_db \
-            POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
+            POSTGRES_HOST=${{ secrets.PRODUCTION_POSTGRES_HOST }} \
             POSTGRES_PORT=5432 \
-            POSTGRES_SSLMODE=require \
-            RABBITMQ_HOST=production-rabbitmq \
+            RABBITMQ_HOST=btj-rmq-aue.australiaeast.azurecontainer.io \
             RABBITMQ_PORT=5672 \
-            RABBITMQ_USER=guest \
-            RABBITMQ_PASS=guest \
-            AZURE_STORAGE_ACCOUNT_NAME=${{ secrets.AZURE_STORAGE_ACCOUNT_NAME }} \
-            AZURE_STORAGE_ACCOUNT_KEY=${{ secrets.AZURE_STORAGE_ACCOUNT_KEY }} \
-          --cpu 1 \
-          --memory 1.5 \
+            RABBITMQ_USER=${{ secrets.PRODUCTION_RABBITMQ_USER }} \
+          --secure-environment-variables \
+            POSTGRES_PASSWORD=${{ secrets.PRODUCTION_POSTGRES_PASSWORD }} \
+            RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
           --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
           --registry-username ${{ env.REGISTRY_USERNAME }} \
           --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --ip-address public \
-          --restart-policy Always
-        echo "Product Service created. Waiting 30 seconds before next container..."
-        sleep 30
+          --restart-policy Always \
+          --overwrite
 
-        # Create Order Service
-        echo "Creating Order Service container (3/5)..."
+        # CUSTOMER (port 8000 + DNS)
         az container create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --name production-order-service \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:latest \
-          --os-type Linux \
-          --ports 8003 \
-          --environment-variables \
-            POSTGRES_USER=${{ secrets.POSTGRES_USER }} \
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
-            POSTGRES_DB=order_db \
-            POSTGRES_HOST=btj-ecommerce-postgres.postgres.database.azure.com \
-            POSTGRES_PORT=5432 \
-            POSTGRES_SSLMODE=require \
-            CUSTOMER_SERVICE_URL=http://production-customer-service \
-            RABBITMQ_HOST=production-rabbitmq \
-            RABBITMQ_PORT=5672 \
-            RABBITMQ_USER=guest \
-            RABBITMQ_PASS=guest \
-          --cpu 1 \
-          --memory 1.5 \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --ip-address public \
-          --restart-policy Always
-        echo "Order Service created. Waiting 30 seconds before next container..."
-        sleep 30
-
-        # Create Frontend
-        echo "Creating Frontend container (4/5)..."
-        az container create \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --name production-frontend \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:latest \
-          --os-type Linux \
-          --ports 80 \
-          --cpu 1 \
-          --memory 1 \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --ip-address public \
-          --restart-policy Always
-        echo "Frontend created. Waiting 30 seconds before next container..."
-        sleep 30
-        
-        echo "All production containers created successfully!"
-
-    - name: Wait for Deployment
-      run: |
-        sleep 30
-        echo "Waiting for services to be ready..."
-
-    - name: Verify Production Deployment
-      run: |
-        # Get production service IPs
-        CUSTOMER_IP=$(az container show \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-customer-service \
-          --query ipAddress.ip -o tsv)
-        
-        PRODUCT_IP=$(az container show \
-          --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-          --name production-product-service \
-          --query ipAddress.ip -o tsv)
-        
-        ORDER_IP=$(az container show \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.sha }} \
+          --ports 8000 \
+          --cpu 1 --memory 1.5 \
+          --os-type Linux \
+          --ip-address Public \
+          --dns-name-label btj-customer-svc-aue \
+          --environment-variables \
+            POSTGRES_USER=postgres \
+            POSTGRES_DB=customer_db \
+            POSTGRES_HOST=${{ secrets.PRODUCTION_POSTGRES_HOST }} \
+            POSTGRES_PORT=5432 \
+            RABBITMQ_HOST=btj-rmq-aue.australiaeast.azurecontainer.io \
+            RABBITMQ_PORT=5672 \
+            RABBITMQ_USER=${{ secrets.PRODUCTION_RABBITMQ_USER }} \
+          --secure-environment-variables \
+            POSTGRES_PASSWORD=${{ secrets.PRODUCTION_POSTGRES_PASSWORD }} \
+            RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
+          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --registry-username ${{ env.REGISTRY_USERNAME }} \
+          --registry-password ${{ env.REGISTRY_PASSWORD }} \
+          --restart-policy Always \
+          --overwrite
+
+        # ORDER (port 8000 + DNS + service URLs)
+        az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-order-service \
-          --query ipAddress.ip -o tsv)
-        
-        FRONTEND_IP=$(az container show \
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.sha }} \
+          --ports 8000 \
+          --cpu 1 --memory 1.5 \
+          --os-type Linux \
+          --ip-address Public \
+          --dns-name-label btj-order-svc-aue \
+          --environment-variables \
+            POSTGRES_USER=postgres \
+            POSTGRES_DB=order_db \
+            POSTGRES_HOST=${{ secrets.PRODUCTION_POSTGRES_HOST }} \
+            POSTGRES_PORT=5432 \
+            RABBITMQ_HOST=btj-rmq-aue.australiaeast.azurecontainer.io \
+            RABBITMQ_PORT=5672 \
+            RABBITMQ_USER=${{ secrets.PRODUCTION_RABBITMQ_USER }} \
+            PRODUCT_SERVICE_URL=http://btj-product-svc-aue.australiaeast.azurecontainer.io:8000 \
+            CUSTOMER_SERVICE_URL=http://btj-customer-svc-aue.australiaeast.azurecontainer.io:8000 \
+          --secure-environment-variables \
+            POSTGRES_PASSWORD=${{ secrets.PRODUCTION_POSTGRES_PASSWORD }} \
+            RABBITMQ_PASS=${{ secrets.PRODUCTION_RABBITMQ_PASS }} \
+          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --registry-username ${{ env.REGISTRY_USERNAME }} \
+          --registry-password ${{ env.REGISTRY_PASSWORD }} \
+          --restart-policy Always \
+          --overwrite
+
+        # FRONTEND (DNS + :80)
+        az container create \
           --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
           --name production-frontend \
-          --query ipAddress.ip -o tsv)
+          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.sha }} \
+          --ports 80 \
+          --cpu 1 --memory 1 \
+          --os-type Linux \
+          --ip-address Public \
+          --dns-name-label btj-frontend-aue \
+          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
+          --registry-username ${{ env.REGISTRY_USERNAME }} \
+          --registry-password ${{ env.REGISTRY_PASSWORD }} \
+          --restart-policy Always \
+          --overwrite
 
-        echo "Production deployment successful!"
-        echo "Frontend URL: http://$FRONTEND_IP:80"
-        echo "Customer Service: http://$CUSTOMER_IP:8002"
-        echo "Product Service: http://$PRODUCT_IP:8001"
-        echo "Order Service: http://$ORDER_IP:8003"
-
-    - name: Send Deployment Notification
+    - name: Verify Production Deployment (FQDNs on :8000)
       run: |
-        echo "Production deployment completed successfully for commit ${{ github.sha }}"
-        echo "Services are now running the latest version"
+        CUSTOMER_FQDN=$(az container show -g ${{ env.AZURE_RESOURCE_GROUP }} -n production-customer-service --query ipAddress.fqdn -o tsv)
+        PRODUCT_FQDN=$(az container show -g ${{ env.AZURE_RESOURCE_GROUP }} -n production-product-service  --query ipAddress.fqdn -o tsv)
+        ORDER_FQDN=$(az container show   -g ${{ env.AZURE_RESOURCE_GROUP }} -n production-order-service    --query ipAddress.fqdn -o tsv)
+        FRONTEND_FQDN=$(az container show -g ${{ env.AZURE_RESOURCE_GROUP }} -n production-frontend       --query ipAddress.fqdn -o tsv)
+
+        curl -f http://$CUSTOMER_FQDN:8000/health
+        curl -f http://$PRODUCT_FQDN:8000/health
+        curl -f http://$ORDER_FQDN:8000/health
+        curl -f http://$FRONTEND_FQDN
+
+        echo "Frontend: http://$FRONTEND_FQDN"
+        echo "Customer: http://$CUSTOMER_FQDN:8000"
+        echo "Product : http://$PRODUCT_FQDN:8000"
+        echo "Order   : http://$ORDER_FQDN:8000"
