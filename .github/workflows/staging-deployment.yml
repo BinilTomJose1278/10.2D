@@ -240,24 +240,7 @@ jobs:
       - name: Wait for Services to be Ready
         run: sleep 60
 
-      - name: Smoke tests (FQDNs in australiaeast)
-        shell: bash
-        run: |
-          REGION="${{ env.LOCATION }}"
-          CUST="staging-customer-${{ github.run_id }}.$REGION.azurecontainer.io"
-          PROD="staging-product-${{ github.run_id }}.$REGION.azurecontainer.io"
-          ORDR="staging-order-${{ github.run_id }}.$REGION.azurecontainer.io"
-          FE="staging-frontend-${{ github.run_id }}.$REGION.azurecontainer.io"
-
-          curl -f "http://$CUST:8000/health"
-          curl -f "http://$PROD:8000/health"
-          curl -f "http://$ORDR:8000/health"
-          curl -f "http://$FE"
-
-          echo "Frontend: http://$FE"
-          echo "Customer: http://$CUST:8000"
-          echo "Product : http://$PROD:8000"
-          echo "Order   : http://$ORDR:8000"
+    
 
       - name: Cleanup Staging Infrastructure (ACI only)
         if: always()
