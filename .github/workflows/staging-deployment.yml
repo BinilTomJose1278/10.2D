@@ -16,188 +16,220 @@ env:
   REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
   AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   STAGING_RESOURCE_GROUP: ${{ secrets.STAGING_RESOURCE_GROUP }}
-  LOCATION: eastus
+  LOCATION: australiaeast
 
 jobs:
   create-staging-infrastructure:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Azure Login
-      uses: azure/login@v1
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Create Staging Resource Group
-      run: |
-        az group create --name ${{ env.STAGING_RESOURCE_GROUP }} --location ${{ env.LOCATION }}
+      - name: Select subscription
+        run: az account set --subscription "${{ env.AZURE_SUBSCRIPTION_ID }}"
 
-    - name: Create Staging PostgreSQL
-      run: |
-        az postgres flexible-server create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
-          --name staging-postgres-${{ github.run_id }} \
-          --location ${{ env.LOCATION }} \
-          --admin-user postgres \
-          --admin-password ${{ secrets.POSTGRES_PASSWORD }} \
-          --sku-name Standard_B1ms \
-          --tier Burstable \
-          --public-access 0.0.0.0 \
-          --storage-size 32
+      - name: Ensure Staging Resource Group (australiaeast)
+        run: az group create --name "${{ env.STAGING_RESOURCE_GROUP }}" --location "${{ env.LOCATION }}"
 
-        for DB in customer_db order_db product_db; do
-          az postgres flexible-server db create \
-            --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
-            --server-name staging-postgres-${{ github.run_id }} \
-            --database-name $DB
-        done
+      - name: Register providers (idempotent)
+        run: |
+          az provider register -n Microsoft.DBforPostgreSQL || true
+          az provider register -n Microsoft.Network || true
+          az provider register -n Microsoft.ContainerInstance || true
 
-    - name: Create Staging RabbitMQ (with DNS)
-      run: |
-        az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
-          --name staging-rabbitmq-${{ github.run_id }} \
-          --image rabbitmq:3-management \
-          --ports 5672 15672 \
-          --cpu 1 --memory 1 \
-          --os-type Linux \
-          --ip-address public \
-          --dns-name-label staging-rmq-${{ github.run_id }} \
-          --restart-policy Always
+      - name: Create Staging PostgreSQL (retry + stable flags)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PG_NAME="staging-postgres-${{ github.run_id }}"
+          RG="${{ env.STAGING_RESOURCE_GROUP }}"
+          REGION="${{ env.LOCATION }}"
+          ADMIN_PASS="${{ secrets.POSTGRES_PASSWORD }}"
 
-    - name: Create Staging ACIs (all :8000 + DNS)
-      run: |
-        POSTGRES_HOST=$(az postgres flexible-server show \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
-          --name staging-postgres-${{ github.run_id }} \
-          --query fullyQualifiedDomainName -o tsv)
+          create_pg() {
+            az postgres flexible-server create \
+              --resource-group "$RG" \
+              --name "$PG_NAME" \
+              --location "$REGION" \
+              --admin-user postgres \
+              --admin-password "$ADMIN_PASS" \
+              --tier Burstable \
+              --sku-name Standard_B1ms \
+              --version 14 \
+              --public-access 0.0.0.0 \
+              --storage-size 32 \
+              --high-availability Disabled \
+              --geo-redundant-backup Disabled
+          }
 
-        # Compose FQDN for RMQ from label
-        RABBITMQ_HOST=staging-rmq-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io
+          echo "Creating PostgreSQL Flexible Server in $REGION..."
+          if ! create_pg; then
+            echo "First create attempt failed. Waiting 30s and retrying..."
+            sleep 30
+            create_pg
+          fi
 
-        # PRODUCT
-        az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
-          --name staging-product-service-${{ github.run_id }} \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/product-service:${{ github.event.inputs.image_sha || github.sha }} \
-          --ports 8000 \
-          --cpu 1 --memory 1.5 \
-          --os-type Linux \
-          --ip-address public \
-          --dns-name-label staging-product-${{ github.run_id }} \
-          --environment-variables \
-            POSTGRES_USER=postgres \
-            POSTGRES_DB=product_db \
-            POSTGRES_HOST=$POSTGRES_HOST \
-            POSTGRES_PORT=5432 \
-            RABBITMQ_HOST=$RABBITMQ_HOST \
-            RABBITMQ_PORT=5672 \
-            RABBITMQ_USER=guest \
-          --secure-environment-variables \
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
-            RABBITMQ_PASS=guest \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --restart-policy Always
+          for DB in customer_db order_db product_db; do
+            az postgres flexible-server db create \
+              --resource-group "$RG" \
+              --server-name "$PG_NAME" \
+              --database-name "$DB"
+          done
 
-        # CUSTOMER
-        az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
-          --name staging-customer-service-${{ github.run_id }} \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/customer-service:${{ github.event.inputs.image_sha || github.sha }} \
-          --ports 8000 \
-          --cpu 1 --memory 1.5 \
-          --os-type Linux \
-          --ip-address public \
-          --dns-name-label staging-customer-${{ github.run_id }} \
-          --environment-variables \
-            POSTGRES_USER=postgres \
-            POSTGRES_DB=customer_db \
-            POSTGRES_HOST=$POSTGRES_HOST \
-            POSTGRES_PORT=5432 \
-            RABBITMQ_HOST=$RABBITMQ_HOST \
-            RABBITMQ_PORT=5672 \
-            RABBITMQ_USER=guest \
-          --secure-environment-variables \
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
-            RABBITMQ_PASS=guest \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --restart-policy Always
+      - name: Create Staging RabbitMQ (DNS in australiaeast)
+        run: |
+          az container create \
+            --resource-group "${{ env.STAGING_RESOURCE_GROUP }}" \
+            --name "staging-rabbitmq-${{ github.run_id }}" \
+            --image rabbitmq:3-management \
+            --ports 5672 15672 \
+            --cpu 1 --memory 1 \
+            --os-type Linux \
+            --ip-address public \
+            --dns-name-label "staging-rmq-${{ github.run_id }}" \
+            --restart-policy Always
 
-        # ORDER (points to other services by FQDN)
-        CUSTOMER_FQDN=staging-customer-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io
-        PRODUCT_FQDN=staging-product-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io
+      - name: Create Staging ACIs (all services on :8000 + DNS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          RG="${{ env.STAGING_RESOURCE_GROUP }}"
+          REGION="${{ env.LOCATION }}"
+          ACR="${{ env.AZURE_CONTAINER_REGISTRY }}"
+          ACR_USER="${{ env.REGISTRY_USERNAME }}"
+          ACR_PASS="${{ env.REGISTRY_PASSWORD }}"
+          SHA="${{ github.event.inputs.image_sha || github.sha }}"
+          PG_NAME="staging-postgres-${{ github.run_id }}"
+          PG_HOST=$(az postgres flexible-server show -g "$RG" -n "$PG_NAME" --query fullyQualifiedDomainName -o tsv)
 
-        az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
-          --name staging-order-service-${{ github.run_id }} \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/order-service:${{ github.event.inputs.image_sha || github.sha }} \
-          --ports 8000 \
-          --cpu 1 --memory 1.5 \
-          --os-type Linux \
-          --ip-address public \
-          --dns-name-label staging-order-${{ github.run_id }} \
-          --environment-variables \
-            POSTGRES_USER=postgres \
-            POSTGRES_DB=order_db \
-            POSTGRES_HOST=$POSTGRES_HOST \
-            POSTGRES_PORT=5432 \
-            RABBITMQ_HOST=$RABBITMQ_HOST \
-            RABBITMQ_PORT=5672 \
-            RABBITMQ_USER=guest \
-            PRODUCT_SERVICE_URL=http://$PRODUCT_FQDN:8000 \
-            CUSTOMER_SERVICE_URL=http://$CUSTOMER_FQDN:8000 \
-          --secure-environment-variables \
-            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }} \
-            RABBITMQ_PASS=guest \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --restart-policy Always
+          RMQ_FQDN="staging-rmq-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io"
 
-        # FRONTEND (with DNS)
-        az container create \
-          --resource-group ${{ env.STAGING_RESOURCE_GROUP }} \
-          --name staging-frontend-${{ github.run_id }} \
-          --image ${{ env.AZURE_CONTAINER_REGISTRY }}/frontend:${{ github.event.inputs.image_sha || github.sha }} \
-          --ports 80 \
-          --cpu 1 --memory 1 \
-          --os-type Linux \
-          --ip-address public \
-          --dns-name-label staging-frontend-${{ github.run_id }} \
-          --registry-login-server ${{ env.AZURE_CONTAINER_REGISTRY }} \
-          --registry-username ${{ env.REGISTRY_USERNAME }} \
-          --registry-password ${{ env.REGISTRY_PASSWORD }} \
-          --restart-policy Always
+          # PRODUCT
+          az container create \
+            --resource-group "$RG" \
+            --name "staging-product-service-${{ github.run_id }}" \
+            --image "$ACR/product-service:$SHA" \
+            --ports 8000 \
+            --cpu 1 --memory 1.5 \
+            --os-type Linux \
+            --ip-address public \
+            --dns-name-label "staging-product-${{ github.run_id }}" \
+            --environment-variables \
+              POSTGRES_USER=postgres \
+              POSTGRES_DB=product_db \
+              POSTGRES_HOST="$PG_HOST" \
+              POSTGRES_PORT=5432 \
+              RABBITMQ_HOST="$RMQ_FQDN" \
+              RABBITMQ_PORT=5672 \
+              RABBITMQ_USER=guest \
+            --secure-environment-variables \
+              POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}" \
+              RABBITMQ_PASS=guest \
+            --registry-login-server "$ACR" \
+            --registry-username "$ACR_USER" \
+            --registry-password "$ACR_PASS" \
+            --restart-policy Always
 
-    - name: Wait for Services to be Ready
-      run: |
-        sleep 60
+          # CUSTOMER
+          az container create \
+            --resource-group "$RG" \
+            --name "staging-customer-service-${{ github.run_id }}" \
+            --image "$ACR/customer-service:$SHA" \
+            --ports 8000 \
+            --cpu 1 --memory 1.5 \
+            --os-type Linux \
+            --ip-address public \
+            --dns-name-label "staging-customer-${{ github.run_id }}" \
+            --environment-variables \
+              POSTGRES_USER=postgres \
+              POSTGRES_DB=customer_db \
+              POSTGRES_HOST="$PG_HOST" \
+              POSTGRES_PORT=5432 \
+              RABBITMQ_HOST="$RMQ_FQDN" \
+              RABBITMQ_PORT=5672 \
+              RABBITMQ_USER=guest \
+            --secure-environment-variables \
+              POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}" \
+              RABBITMQ_PASS=guest \
+            --registry-login-server "$ACR" \
+            --registry-username "$ACR_USER" \
+            --registry-password "$ACR_PASS" \
+            --restart-policy Always
 
-    - name: Run Acceptance Tests (FQDNs on :8000)
-      run: |
-        CUSTOMER_FQDN=staging-customer-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io
-        PRODUCT_FQDN=staging-product-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io
-        ORDER_FQDN=staging-order-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io
-        FRONTEND_FQDN=staging-frontend-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io
+          # ORDER (points to other services via FQDN)
+          PRODUCT_FQDN="staging-product-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io"
+          CUSTOMER_FQDN="staging-customer-${{ github.run_id }}.${{ env.LOCATION }}.azurecontainer.io"
 
-        curl -f http://$CUSTOMER_FQDN:8000/health
-        curl -f http://$PRODUCT_FQDN:8000/health
-        curl -f http://$ORDER_FQDN:8000/health
-        curl -f http://$FRONTEND_FQDN
+          az container create \
+            --resource-group "$RG" \
+            --name "staging-order-service-${{ github.run_id }}" \
+            --image "$ACR/order-service:$SHA" \
+            --ports 8000 \
+            --cpu 1 --memory 1.5 \
+            --os-type Linux \
+            --ip-address public \
+            --dns-name-label "staging-order-${{ github.run_id }}" \
+            --environment-variables \
+              POSTGRES_USER=postgres \
+              POSTGRES_DB=order_db \
+              POSTGRES_HOST="$PG_HOST" \
+              POSTGRES_PORT=5432 \
+              RABBITMQ_HOST="$RMQ_FQDN" \
+              RABBITMQ_PORT=5672 \
+              RABBITMQ_USER=guest \
+              PRODUCT_SERVICE_URL="http://$PRODUCT_FQDN:8000" \
+              CUSTOMER_SERVICE_URL="http://$CUSTOMER_FQDN:8000" \
+            --secure-environment-variables \
+              POSTGRES_PASSWORD="${{ secrets.POSTGRES_PASSWORD }}" \
+              RABBITMQ_PASS=guest \
+            --registry-login-server "$ACR" \
+            --registry-username "$ACR_USER" \
+            --registry-password "$ACR_PASS" \
+            --restart-policy Always
 
-        echo "Frontend: http://$FRONTEND_FQDN"
-        echo "Customer: http://$CUSTOMER_FQDN:8000"
-        echo "Product : http://$PRODUCT_FQDN:8000"
-        echo "Order   : http://$ORDER_FQDN:8000"
+          # FRONTEND
+          az container create \
+            --resource-group "$RG" \
+            --name "staging-frontend-${{ github.run_id }}" \
+            --image "$ACR/frontend:$SHA" \
+            --ports 80 \
+            --cpu 1 --memory 1 \
+            --os-type Linux \
+            --ip-address public \
+            --dns-name-label "staging-frontend-${{ github.run_id }}" \
+            --registry-login-server "$ACR" \
+            --registry-username "$ACR_USER" \
+            --registry-password "$ACR_PASS" \
+            --restart-policy Always
 
-    - name: Cleanup Staging Infrastructure
-      if: always()
-      run: |
-        az group delete --name ${{ env.STAGING_RESOURCE_GROUP }} --yes --no-wait
+      - name: Wait for Services to be Ready
+        run: sleep 60
+
+      - name: Smoke tests (FQDNs in australiaeast)
+        shell: bash
+        run: |
+          REGION="${{ env.LOCATION }}"
+          CUST="staging-customer-${{ github.run_id }}.$REGION.azurecontainer.io"
+          PROD="staging-product-${{ github.run_id }}.$REGION.azurecontainer.io"
+          ORDR="staging-order-${{ github.run_id }}.$REGION.azurecontainer.io"
+          FE="staging-frontend-${{ github.run_id }}.$REGION.azurecontainer.io"
+
+          curl -f "http://$CUST:8000/health"
+          curl -f "http://$PROD:8000/health"
+          curl -f "http://$ORDR:8000/health"
+          curl -f "http://$FE"
+
+          echo "Frontend: http://$FE"
+          echo "Customer: http://$CUST:8000"
+          echo "Product : http://$PROD:8000"
+          echo "Order   : http://$ORDR:8000"
+
+      - name: Cleanup Staging Infrastructure
+        if: always()
+        run: az group delete --name "${{ env.STAGING_RESOURCE_GROUP }}" --yes --no-wait
